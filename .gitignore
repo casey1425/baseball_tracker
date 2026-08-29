@@ -1,0 +1,11 @@
+# Python 가상환경 및 캐시
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Mac 시스템 파일
+.DS_Store
+
+# Streamlit 캐시
+.streamlit/
