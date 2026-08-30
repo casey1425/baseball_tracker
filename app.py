@@ -24,7 +24,7 @@ TEAM_STADIUM_MAP = {
     "롯데": "사직", "NC": "창원"
 }
 
-# 1. 특정 날짜 경기 목록 조회 (None 안전 처리 및 더미 필터링)
+# 1. 특정 날짜 경기 목록 조회 (더미 필터링 및 구장 매핑)
 @st.cache_data(ttl=5)
 def fetch_games_by_date(target_date: str):
     url = "https://api-gw.sports.naver.com/schedule/games"
@@ -48,6 +48,7 @@ def fetch_games_by_date(target_date: str):
             home = g.get("homeTeamName")
             away = g.get("awayTeamName")
             
+            # 유효하지 않은 경기/더미 데이터 제외
             if not game_id or not home or not away:
                 continue
             
@@ -70,7 +71,7 @@ def fetch_games_by_date(target_date: str):
     except Exception:
         return []
 
-# 2. 경기 상세(라인스코어/선발투수) 조회 (None 방어)
+# 2. 경기 상세(라인스코어/선발투수) 조회
 def fetch_game_detail(game_id: str):
     url = f"https://api-gw.sports.naver.com/schedule/games/{game_id}"
     try:
@@ -82,7 +83,7 @@ def fetch_game_detail(game_id: str):
     except Exception:
         return {}
 
-# 3. 실시간 문자 중계 및 볼카운트/주자 상태 조회 (None 방어)
+# 3. 실시간 문자 중계, 볼카운트 및 박스스코어 라인업 데이터 조회
 def fetch_relay(game_id: str):
     url = f"https://api-gw.sports.naver.com/schedule/games/{game_id}/relay"
     try:
@@ -94,7 +95,10 @@ def fetch_relay(game_id: str):
         
         text_relays = relay_data.get("textRelays") or []
         current_state = relay_data.get("currentGameState") or {}
+        home_lineup = relay_data.get("homeLineup") or {}
+        away_lineup = relay_data.get("awayLineup") or {}
         
+        # currentGameState가 비어있을 경우 최신 텍스트 옵션에서 추출
         if not current_state and text_relays:
             for item in reversed(text_relays):
                 opts = item.get("textOptions") or []
@@ -103,9 +107,9 @@ def fetch_relay(game_id: str):
                     if current_state:
                         break
                         
-        return text_relays, current_state
+        return text_relays, current_state, home_lineup, away_lineup
     except Exception:
-        return [], {}
+        return [], {}, {}, {}
 
 # 4. 라인스코어 데이터프레임 생성
 def build_linescore_df(game_data):
@@ -137,7 +141,63 @@ def build_linescore_df(game_data):
         
     return pd.DataFrame(data)
 
-# 5. 주자 다이아몬드 & BSO 볼카운트 위젯 렌더러
+# 5. 박스스코어(타자/투수) 데이터프레임 생성 (실제 API 필드 매핑 적용)
+def build_boxscore_dfs(lineup_dict):
+    if not isinstance(lineup_dict, dict):
+        return pd.DataFrame(), pd.DataFrame()
+        
+    batters_raw = lineup_dict.get("batter", [])
+    pitchers_raw = lineup_dict.get("pitcher", [])
+    
+    # 1. 타자 기록표
+    batter_rows = []
+    for b in batters_raw:
+        season_hra = b.get("seasonHra")
+        season_hra_str = f"{float(season_hra):.3f}" if season_hra is not None and str(season_hra) != "" else "-"
+        
+        bb_cnt = int(b.get("bb") or 0)
+        hbp_cnt = int(b.get("hbp") or 0)
+        
+        batter_rows.append({
+            "타순": b.get("batOrder", "-"),
+            "포지션": b.get("posName", "-"),
+            "선수명": b.get("name", "-"),
+            "타석": b.get("pa", 0),
+            "타수": b.get("ab", 0),
+            "득점": b.get("run", 0),
+            "안타": b.get("hit", 0),
+            "타점": b.get("rbi", 0),
+            "홈런": b.get("hr", 0),
+            "사사구": bb_cnt + hbp_cnt,
+            "삼진": b.get("so", 0),
+            "시즌타율": season_hra_str
+        })
+    df_batters = pd.DataFrame(batter_rows)
+    
+    # 2. 투수 기록표
+    pitcher_rows = []
+    for p in pitchers_raw:
+        bb_cnt = int(p.get("bb") or 0)
+        hbp_cnt = int(p.get("hbp") or 0)
+        
+        pitcher_rows.append({
+            "등판": p.get("seqno", "-"),
+            "선수명": p.get("name", "-"),
+            "이닝": p.get("inn", "-"),
+            "투구수": p.get("ballCount", "-"),
+            "피안타": p.get("hit", 0),
+            "피홈런": p.get("hr", 0),
+            "실점": p.get("run", 0),
+            "자책": p.get("er", 0),
+            "사사구": bb_cnt + hbp_cnt,
+            "탈삼진": p.get("kk", 0),
+            "시즌ERA": p.get("seasonEra", "-")
+        })
+    df_pitchers = pd.DataFrame(pitcher_rows)
+    
+    return df_batters, df_pitchers
+
+# 6. 주자 다이아몬드 & BSO 볼카운트 위젯 렌더러
 def render_game_status_widget(state):
     try:
         ball = int(state.get("ball", 0))
@@ -241,11 +301,10 @@ else:
     selected_game_id = game_options[selected_label]
     current_game_summary = next((g for g in games if g["game_id"] == selected_game_id), {})
     
-    # 경기 상세 및 문자 중계 데이터 호출
+    # 경기 상세 및 문자 중계/라인업 데이터 호출
     game_detail = fetch_game_detail(selected_game_id)
-    text_relays, current_state = fetch_relay(selected_game_id)
+    text_relays, current_state, home_lineup, away_lineup = fetch_relay(selected_game_id)
 
-    # 데이터 우선순위: 상세 정보 > 목록 정보
     away_name = game_detail.get('awayTeamFullName') or game_detail.get('awayTeamName') or current_game_summary.get('away', '원정')
     home_name = game_detail.get('homeTeamFullName') or game_detail.get('homeTeamName') or current_game_summary.get('home', '홈')
     away_score = game_detail.get('awayTeamScore', current_game_summary.get('away_score', 0))
@@ -253,7 +312,7 @@ else:
     status_info = game_detail.get('statusInfo') or current_game_summary.get('status', '경기정보')
     venue = game_detail.get('stadium') or current_game_summary.get('venue', '구장')
 
-    # 1. 상단 점수 헤더 & BSO/주자 위젯
+    # 상단 스코어보드 헤더
     c1, c2, c3 = st.columns([2, 2, 2])
     with c1:
         st.markdown(f"<h2 style='text-align: right;'>{away_name}</h2>", unsafe_allow_html=True)
@@ -265,7 +324,6 @@ else:
         st.markdown(f"<p style='text-align: center; margin-top: 5px; font-weight: bold; font-size: 1.25rem;'>{status_info}</p>", unsafe_allow_html=True)
         st.markdown(f"<p style='text-align: center; color: gray; margin-bottom: 2px;'>{venue} 구장</p>", unsafe_allow_html=True)
         
-        # 경기 취소가 아니면 위젯 표시
         if not current_game_summary.get("cancel"):
             render_game_status_widget(current_state)
         
@@ -281,78 +339,117 @@ else:
 
     st.divider()
 
-    # 2. 취소된 경기이거나 시작 전 경기 처리
+    # 취소/시작 전 분기 처리
     if current_game_summary.get("cancel") or "취소" in status_info:
         st.warning("🌧️ 우천 또는 그라운드 사정 등으로 취소된 경기입니다.")
     elif "시작전" in status_info or "경기전" in status_info or status_info == "BEFORE":
         st.info("🕒 경기 시작 전입니다. 경기 시작 후 실시간 점수판과 투구 로그가 제공됩니다.")
     else:
-        # 라인스코어보드
+        # 1. 라인스코어보드
         st.subheader("📊 라인스코어 (Linescore)")
         st.dataframe(build_linescore_df(game_detail), use_container_width=True, hide_index=True)
 
         st.divider()
 
-        # 타석 및 투구 상세 중계 피드
-        st.subheader("📋 타석 및 투구 상세 중계")
-        
-        if text_relays:
-            st.caption(f"총 {len(text_relays)}개의 타석/이닝 이벤트")
-            
-            for at_bat in reversed(text_relays):
-                title = at_bat.get("title", "").strip()
-                inning = at_bat.get("inn", "")
-                text_options = at_bat.get("textOptions") or []
+        # 2. [핵심] 실시간 중계 피드 & 선수별 기록실(Boxscore) 탭 분리
+        tab_relay, tab_boxscore = st.tabs(["📋 실시간 중계 피드", "📊 선수별 기록실 (Boxscore)"])
 
-                if not text_options or "==" in title or "공격" in title or "종료" in title:
-                    header_text = title if title and "==" not in title else (text_options[0].get("text") if text_options else "")
-                    if header_text and "==" not in header_text:
-                        st.warning(f"📢 **[{inning}회] {header_text}**")
-                    continue
-
-                final_action = text_options[-1] if text_options else {}
-                final_text = final_action.get("text", "").strip()
+        # 탭 1: 실시간 타석/투구 상세 중계
+        with tab_relay:
+            st.subheader("📋 타석 및 투구 상세 중계")
+            if text_relays:
+                st.caption(f"총 {len(text_relays)}개의 타석/이닝 이벤트")
                 
-                state = final_action.get("currentGameState") or {}
-                b = state.get("ball", "-")
-                s = state.get("strike", "-")
-                o = state.get("out", "-")
-                b1 = "1루" if str(state.get("base1")) == "1" else ""
-                b2 = "2루" if str(state.get("base2")) == "1" else ""
-                b3 = "3루" if str(state.get("base3")) == "1" else ""
-                runners = ", ".join(filter(None, [b1, b2, b3])) or "주자 없음"
+                for at_bat in reversed(text_relays):
+                    title = at_bat.get("title", "").strip()
+                    inning = at_bat.get("inn", "")
+                    text_options = at_bat.get("textOptions") or []
 
-                if any(k in final_text for k in ["홈런", "적시타", "2루타", "3루타", "안타", "득점", "끝내기"]):
-                    result_badge = f"🔥 **{final_text}**"
-                elif any(k in final_text for k in ["삼진", "아웃", "병살", "플라이", "땅볼", "파울플라이"]):
-                    result_badge = f"⚾ **{final_text}**"
-                elif any(k in final_text for k in ["볼넷", "사구", "몸에 맞는"]):
-                    result_badge = f"🚶 **{final_text}**"
-                else:
-                    result_badge = f"• **{final_text}**"
+                    if not text_options or "==" in title or "공격" in title or "종료" in title:
+                        header_text = title if title and "==" not in title else (text_options[0].get("text") if text_options else "")
+                        if header_text and "==" not in header_text:
+                            st.warning(f"📢 **[{inning}회] {header_text}**")
+                        continue
 
-                expander_title = f"[{inning}회] {title} ➔ {final_text} (B{b}-S{s}-O{o} | {runners})"
-
-                with st.expander(expander_title, expanded=False):
-                    st.markdown(f"**결과 요약:** {result_badge}")
-                    st.caption(f"상황: 볼카운트 B{b}-S{s}-O{o} | 주자: {runners}")
-                    st.markdown("---")
+                    final_action = text_options[-1] if text_options else {}
+                    final_text = final_action.get("text", "").strip()
                     
-                    for opt in text_options:
-                        pitch_text = opt.get("text", "").strip()
-                        stuff = opt.get("stuff", "").strip()
-                        opt_state = opt.get("currentGameState") or {}
-                        p_b = opt_state.get("ball", "-")
-                        p_s = opt_state.get("strike", "-")
-                        p_o = opt_state.get("out", "-")
-                        
-                        if "==" in pitch_text or not pitch_text:
-                            continue
+                    state = final_action.get("currentGameState") or {}
+                    b = state.get("ball", "-")
+                    s = state.get("strike", "-")
+                    o = state.get("out", "-")
+                    b1 = "1루" if str(state.get("base1")) == "1" else ""
+                    b2 = "2루" if str(state.get("base2")) == "1" else ""
+                    b3 = "3루" if str(state.get("base3")) == "1" else ""
+                    runners = ", ".join(filter(None, [b1, b2, b3])) or "주자 없음"
 
-                        stuff_label = f"`[{stuff}]` " if stuff else ""
-                        st.markdown(f"- {stuff_label}**{pitch_text}** `(B{p_b}-S{p_s}-O{p_o})`")
-        else:
-            st.info("문자 중계 데이터가 등록되어 있지 않습니다.")
+                    if any(k in final_text for k in ["홈런", "적시타", "2루타", "3루타", "안타", "득점", "끝내기"]):
+                        result_badge = f"🔥 **{final_text}**"
+                    elif any(k in final_text for k in ["삼진", "아웃", "병살", "플라이", "땅볼", "파울플라이"]):
+                        result_badge = f"⚾ **{final_text}**"
+                    elif any(k in final_text for k in ["볼넷", "사구", "몸에 맞는"]):
+                        result_badge = f"🚶 **{final_text}**"
+                    else:
+                        result_badge = f"• **{final_text}**"
+
+                    expander_title = f"[{inning}회] {title} ➔ {final_text} (B{b}-S{s}-O{o} | {runners})"
+
+                    with st.expander(expander_title, expanded=False):
+                        st.markdown(f"**결과 요약:** {result_badge}")
+                        st.caption(f"상황: 볼카운트 B{b}-S{s}-O{o} | 주자: {runners}")
+                        st.markdown("---")
+                        
+                        for opt in text_options:
+                            pitch_text = opt.get("text", "").strip()
+                            stuff = opt.get("stuff", "").strip()
+                            opt_state = opt.get("currentGameState") or {}
+                            p_b = opt_state.get("ball", "-")
+                            p_s = opt_state.get("strike", "-")
+                            p_o = opt_state.get("out", "-")
+                            
+                            if "==" in pitch_text or not pitch_text:
+                                continue
+
+                            stuff_label = f"`[{stuff}]` " if stuff else ""
+                            st.markdown(f"- {stuff_label}**{pitch_text}** `(B{p_b}-S{p_s}-O{p_o})`")
+            else:
+                st.info("문자 중계 데이터가 등록되어 있지 않습니다.")
+
+        # 탭 2: 선수별 박스스코어 세부 기록실
+        with tab_boxscore:
+            st.subheader("📊 양 팀 선수별 상세 기록실 (Boxscore)")
+            
+            # 원정팀 / 홈팀 하위 탭 분리
+            subtab_away, subtab_home = st.tabs([f"원정팀: {away_name}", f"홈팀: {home_name}"])
+            
+            away_batters, away_pitchers = build_boxscore_dfs(away_lineup)
+            home_batters, home_pitchers = build_boxscore_dfs(home_lineup)
+            
+            with subtab_away:
+                st.markdown(f"#### 🏏 {away_name} 타자 기록")
+                if not away_batters.empty:
+                    st.dataframe(away_batters, use_container_width=True, hide_index=True)
+                else:
+                    st.info("타자 기록 데이터가 아직 등록되지 않았습니다.")
+                    
+                st.markdown(f"#### ⚾ {away_name} 투수 기록")
+                if not away_pitchers.empty:
+                    st.dataframe(away_pitchers, use_container_width=True, hide_index=True)
+                else:
+                    st.info("투수 기록 데이터가 아직 등록되지 않았습니다.")
+
+            with subtab_home:
+                st.markdown(f"#### 🏏 {home_name} 타자 기록")
+                if not home_batters.empty:
+                    st.dataframe(home_batters, use_container_width=True, hide_index=True)
+                else:
+                    st.info("타자 기록 데이터가 아직 등록되지 않았습니다.")
+                    
+                st.markdown(f"#### ⚾ {home_name} 투수 기록")
+                if not home_pitchers.empty:
+                    st.dataframe(home_pitchers, use_container_width=True, hide_index=True)
+                else:
+                    st.info("투수 기록 데이터가 아직 등록되지 않았습니다.")
 
 if st.sidebar.button("🔄 즉시 새로고침"):
     st.cache_data.clear()

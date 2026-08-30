@@ -1,31 +1,27 @@
 import json
 
-# 이전에 저장된 relay_sample.json 로드
 with open("relay_sample.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 result = data.get("result", {})
 relay_data = result.get("textRelayData", {})
 
-print("=== textRelayData 최상위 키 목록 ===")
-if isinstance(relay_data, dict):
-    print(list(relay_data.keys()))
-    
-    # 텍스트 릴레이 리스트 탐색
-    sample_list = []
-    for k, v in relay_data.items():
-        if isinstance(v, list) and len(v) > 0:
-            print(f"\n🔑 리스트 발견: [{k}] (총 {len(v)}개 항목)")
-            sample_list = v
-            break
+print("=== 라인업 데이터 탐색 ===")
+home_lineup = relay_data.get("homeLineup", {})
+away_lineup = relay_data.get("awayLineup", {})
 
-    if sample_list:
-        print("\n--- 첫 번째 샘플 항목 구조 ---")
-        print(json.dumps(sample_list[0], indent=2, ensure_ascii=False))
+print(f"홈 라인업 키: {list(home_lineup.keys()) if isinstance(home_lineup, dict) else type(home_lineup)}")
+print(f"원정 라인업 키: {list(away_lineup.keys()) if isinstance(away_lineup, dict) else type(away_lineup)}")
+
+# 타자 / 투수 샘플 출력
+if isinstance(home_lineup, dict):
+    batters = home_lineup.get("batter", [])
+    pitchers = home_lineup.get("pitcher", [])
+    
+    if batters:
+        print("\n[타자 데이터 샘플 (홈팀 1번타자)]")
+        print(json.dumps(batters[0], indent=2, ensure_ascii=False))
         
-        # 투구/타석 세부 항목 샘플 탐색
-        for item in sample_list:
-            if any(term in str(item).lower() for term in ["speed", "pitch", "strike", "ball", "삼진", "안타", "직구"]):
-                print("\n--- 투구/타석 상세 데이터 샘플 ---")
-                print(json.dumps(item, indent=2, ensure_ascii=False))
-                break
+    if pitchers:
+        print("\n[투수 데이터 샘플 (홈팀 선발투수)]")
+        print(json.dumps(pitchers[0], indent=2, ensure_ascii=False))
