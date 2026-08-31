@@ -1,7 +1,10 @@
 import streamlit as st
 import httpx
 import pandas as pd
-from datetime import datetime, timedelta
+import plotly.graph_objects as go
+import re
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 # 실시간 자동 새로고침 모듈
 try:
@@ -12,11 +15,11 @@ except ImportError:
 
 st.set_page_config(page_title="KBO 실시간 중계 대시보드", layout="wide", page_icon="⚾")
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*"
 }
 
-# KBO 10개 구단 기본 홈구장 매핑
 TEAM_STADIUM_MAP = {
     "두산": "잠실", "LG": "잠실", "KT": "수원", "kt": "수원",
     "SSG": "문학", "키움": "고척", "한화": "대전",
@@ -24,7 +27,10 @@ TEAM_STADIUM_MAP = {
     "롯데": "사직", "NC": "창원"
 }
 
-# 1. 특정 날짜 경기 목록 조회 (더미 필터링 및 구장 매핑)
+KST = timezone(timedelta(hours=9))
+today_kst = datetime.now(KST).date()
+
+# 1. 특정 날짜 경기 목록 조회
 @st.cache_data(ttl=5)
 def fetch_games_by_date(target_date: str):
     url = "https://api-gw.sports.naver.com/schedule/games"
@@ -35,20 +41,18 @@ def fetch_games_by_date(target_date: str):
         "category": "kbaseball",
         "size": 100
     }
+    headers = {**DEFAULT_HEADERS, "Referer": "https://m.sports.naver.com/"}
     try:
-        res = httpx.get(url, params=params, headers=HEADERS, timeout=5.0)
+        res = httpx.get(url, params=params, headers=headers, timeout=5.0, follow_redirects=True)
         res.raise_for_status()
         data = res.json() or {}
-        result = data.get("result") or {}
-        games = result.get("games") or []
+        games = (data.get("result") or {}).get("games") or []
         
         parsed = []
         for g in games:
             game_id = g.get("gameId")
             home = g.get("homeTeamName")
             away = g.get("awayTeamName")
-            
-            # 유효하지 않은 경기/더미 데이터 제외
             if not game_id or not home or not away:
                 continue
             
@@ -71,34 +75,31 @@ def fetch_games_by_date(target_date: str):
     except Exception:
         return []
 
-# 2. 경기 상세(라인스코어/선발투수) 조회
+# 2. 경기 상세 조회
 def fetch_game_detail(game_id: str):
     url = f"https://api-gw.sports.naver.com/schedule/games/{game_id}"
+    headers = {**DEFAULT_HEADERS, "Referer": "https://m.sports.naver.com/"}
     try:
-        res = httpx.get(url, headers=HEADERS, timeout=5.0)
+        res = httpx.get(url, headers=headers, timeout=5.0, follow_redirects=True)
         res.raise_for_status()
-        data = res.json() or {}
-        result = data.get("result") or {}
-        return result.get("game") or {}
+        return (res.json() or {}).get("result", {}).get("game", {})
     except Exception:
         return {}
 
-# 3. 실시간 문자 중계, 볼카운트 및 박스스코어 라인업 데이터 조회
+# 3. 실시간 최신 상황판/라인업 조회
 def fetch_relay(game_id: str):
     url = f"https://api-gw.sports.naver.com/schedule/games/{game_id}/relay"
+    headers = {**DEFAULT_HEADERS, "Referer": "https://m.sports.naver.com/"}
     try:
-        res = httpx.get(url, headers=HEADERS, timeout=5.0)
+        res = httpx.get(url, headers=headers, timeout=5.0, follow_redirects=True)
         res.raise_for_status()
-        data = res.json() or {}
-        result = data.get("result") or {}
-        relay_data = result.get("textRelayData") or {}
+        relay_data = (res.json() or {}).get("result", {}).get("textRelayData", {})
         
         text_relays = relay_data.get("textRelays") or []
         current_state = relay_data.get("currentGameState") or {}
         home_lineup = relay_data.get("homeLineup") or {}
         away_lineup = relay_data.get("awayLineup") or {}
         
-        # currentGameState가 비어있을 경우 최신 텍스트 옵션에서 추출
         if not current_state and text_relays:
             for item in reversed(text_relays):
                 opts = item.get("textOptions") or []
@@ -111,7 +112,247 @@ def fetch_relay(game_id: str):
     except Exception:
         return [], {}, {}, {}
 
-# 4. 라인스코어 데이터프레임 생성
+# 4. [수정 완료] 1회부터 경기 종료까지 각 이닝별 중계 병렬 수집 및 타석별 고유 중복 제거
+@st.cache_data(ttl=10)
+def fetch_all_innings_relay(game_id: str, total_innings: int):
+    def fetch_single_inning(inn):
+        url = f"https://api-gw.sports.naver.com/schedule/games/{game_id}/relay"
+        headers = {**DEFAULT_HEADERS, "Referer": "https://m.sports.naver.com/"}
+        try:
+            # 네이버 공식 API의 이닝 파라미터는 'inning'
+            res = httpx.get(url, params={"inning": inn}, headers=headers, timeout=4.0, follow_redirects=True)
+            if res.status_code == 200:
+                rdata = (res.json() or {}).get("result", {}).get("textRelayData", {})
+                relays = rdata.get("textRelays") or []
+                # 해당 이닝에 속한 타석만 필터링
+                matched = [r for r in relays if str(r.get("inn", "")) == str(inn)]
+                return inn, matched if matched else relays
+        except Exception:
+            pass
+        return inn, []
+
+    max_inn = max(total_innings, 9)
+    results = []
+    with ThreadPoolExecutor(max_workers=min(max_inn, 12)) as executor:
+        futures = [executor.submit(fetch_single_inning, inn) for inn in range(1, max_inn + 1)]
+        for f in futures:
+            results.append(f.result())
+
+    results.sort(key=lambda x: x[0])
+    
+    # 타석 고유 번호(no) 기준으로 중복 제거
+    seen_no = set()
+    all_relays = []
+    for _, relays in results:
+        for r in relays:
+            no = r.get("no")
+            if no is not None:
+                if no not in seen_no:
+                    seen_no.add(no)
+                    all_relays.append(r)
+            else:
+                all_relays.append(r)
+                
+    return all_relays
+
+# 5. [수정 완료] 순차적 타석별 승리 확률 추출 (중복 제거 & 순서 보장)
+def extract_win_probabilities(all_text_relays, home_name="홈", away_name="원정"):
+    # 타석 고유 번호(no) 기준 오름차순(1회초 1번타자부터 순차 정렬)
+    sorted_relays = sorted(all_text_relays, key=lambda x: int(x.get("no", 0)))
+    
+    data_points = []
+    # 경기 시작 베이스라인
+    data_points.append({
+        "step": 0,
+        "inn_num": 0,
+        "inning": "경기 시작",
+        "event": "경기 시작 전 (50:50)",
+        "home_win_rate": 50.0,
+        "away_win_rate": 50.0,
+        "wpa": 0.0,
+        "score": "0 : 0",
+        "is_major": False
+    })
+    
+    seen_no = set()
+    step = 1
+    for at_bat in sorted_relays:
+        no = at_bat.get("no")
+        if no in seen_no:
+            continue
+        seen_no.add(no)
+
+        metric = at_bat.get("metricOption") or {}
+        h_rate = metric.get("homeTeamWinRate", 0.0)
+        a_rate = metric.get("awayTeamWinRate", 0.0)
+        wpa = metric.get("wpaByPlate", 0.0)
+        
+        # 유효하지 않은 확률 데이터 및 단순 구분선/공격 안내 헤더 제외
+        if (h_rate == 0.0 and a_rate == 0.0) or (h_rate + a_rate == 0.0):
+            continue
+            
+        title = (at_bat.get("title") or "").strip()
+        if not title or "==" in title or "공격" in title or "종료" in title:
+            continue
+            
+        inn = at_bat.get("inn", 1)
+        half = "말" if str(at_bat.get("homeOrAway")) == "1" else "초"
+        inning_str = f"{inn}회{half}"
+        
+        text_options = at_bat.get("textOptions") or []
+        final_text = ""
+        score_str = ""
+        if text_options:
+            for opt in reversed(text_options):
+                t = (opt.get("text") or "").strip()
+                if t and "==" not in t and "공격" not in t:
+                    final_text = t
+                    g_state = opt.get("currentGameState") or {}
+                    h_score = g_state.get("homeScore")
+                    a_score = g_state.get("awayScore")
+                    if h_score is not None and a_score is not None:
+                        score_str = f"{away_name} {a_score} : {h_score} {home_name}"
+                    break
+
+        event_summary = f"{title} ➔ {final_text}" if final_text and final_text != title else title
+        is_major = abs(wpa) >= 10.0 or any(k in final_text for k in ["홈런", "적시타", "역전", "끝내기", "밀어내기", "희생플라이"])
+
+        data_points.append({
+            "step": step,
+            "inn_num": int(inn) if str(inn).isdigit() else 1,
+            "inning": inning_str,
+            "event": event_summary,
+            "home_win_rate": float(h_rate),
+            "away_win_rate": float(a_rate),
+            "wpa": float(wpa),
+            "score": score_str,
+            "is_major": is_major
+        })
+        step += 1
+        
+    return data_points
+
+# 6. [수정 완료] 회차별 선택(1회, 2회... 전체) 지원 승리 확률 차트 렌더러
+def render_win_expectancy_chart(all_text_relays, home_name="홈", away_name="원정"):
+    st.subheader("📈 실시간 승리 확률 (Win Expectancy)")
+    
+    data_points = extract_win_probabilities(all_text_relays, home_name, away_name)
+    if len(data_points) <= 1:
+        st.info("현재 경기 진행 중이 아니거나 승리 확률 데이터가 아직 집계되지 않았습니다.")
+        return
+
+    # 1. 상단 현재 승리 확률 카드
+    current_point = data_points[-1]
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric(f"🏠 {home_name} 승리 확률", f"{current_point['home_win_rate']:.1f}%")
+    with c2:
+        st.metric(f"🚩 {away_name} 승리 확률", f"{current_point['away_win_rate']:.1f}%")
+    with c3:
+        last_wpa = current_point['wpa']
+        st.metric("최근 타석 WPA", f"{last_wpa:+.1f}%", delta=f"{last_wpa:+.1f}%" if last_wpa != 0 else None)
+
+    st.markdown("---")
+
+    # 2. 이닝별 선택 세그먼트 컨트롤 (1회 ~ 마지막 이닝)
+    available_inns = sorted(list(set(d["inn_num"] for d in data_points if d["inn_num"] > 0)))
+    inn_options = ["전체 경기 (1회~종료)"] + [f"{i}회" for i in available_inns]
+    
+    selected_inn = st.segmented_control(
+        "조회 이닝 선택",
+        options=inn_options,
+        default="전체 경기 (1회~종료)",
+        label_visibility="collapsed"
+    )
+
+    # 3. 선택 이닝 필터링
+    if selected_inn == "전체 경기 (1회~종료)":
+        display_points = data_points
+    else:
+        target_inn_num = int(selected_inn.replace("회", ""))
+        display_points = [d for d in data_points if d["inn_num"] == target_inn_num]
+        
+        # 이전 이닝의 마지막 포인트 하나를 연결점으로 추가
+        first_idx = next((i for i, d in enumerate(data_points) if d["inn_num"] == target_inn_num), None)
+        if first_idx and first_idx > 0:
+            prev_point = dict(data_points[first_idx - 1])
+            prev_point["is_prev_connector"] = True
+            display_points = [prev_point] + display_points
+
+    if not display_points:
+        st.caption("선택한 이닝에 기록된 타석 데이터가 없습니다.")
+        return
+
+    df_chart = pd.DataFrame(display_points)
+
+    # 4. Plotly 인터랙티브 그래프
+    fig = go.Figure()
+    fig.add_hline(y=50, line_dash="dash", line_color="#555B6E", annotation_text="50% 균형", annotation_position="top left")
+
+    fig.add_trace(go.Scatter(
+        x=df_chart["step"],
+        y=df_chart["home_win_rate"],
+        mode="lines+markers",
+        name=f"{home_name} 승률",
+        line=dict(color="#E53935", width=3, shape="spline"),
+        marker=dict(
+            size=df_chart["is_major"].apply(lambda x: 10 if x else 4),
+            color=df_chart["is_major"].apply(lambda x: "#FFD700" if x else "#E53935"),
+            symbol=df_chart["is_major"].apply(lambda x: "star" if x else "circle"),
+            line=dict(width=1, color="#FFFFFF")
+        ),
+        customdata=df_chart[["inning", "event", "score", "home_win_rate", "away_win_rate", "wpa"]],
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            "상황: %{customdata[1]}<br>"
+            "점수: %{customdata[2]}<br>"
+            f"<b>{home_name}</b>: %{{customdata[3]:.1f}}% | <b>{away_name}</b>: %{{customdata[4]:.1f}}%<br>"
+            "타석 WPA: %{customdata[5]:+.1f}%"
+            "<extra></extra>"
+        )
+    ))
+
+    fig.update_layout(
+        yaxis=dict(
+            title="승리 확률 (%)",
+            range=[0, 100],
+            tickvals=[0, 25, 50, 75, 100],
+            ticktext=[f"{away_name} 100%", "25%", "50%", "75%", f"{home_name} 100%"],
+            gridcolor="rgba(255, 255, 255, 0.1)"
+        ),
+        xaxis=dict(
+            title="경기 진행 순서 (타석 순)",
+            showgrid=False
+        ),
+        margin=dict(l=10, r=10, t=15, b=10),
+        hovermode="x unified",
+        template="plotly_dark",
+        height=380
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 5. 선택 이닝/전체 경기의 주요 승부처(WPA) 리스트 (중복 없이 1회씩만 표시)
+    major_events = df_chart[df_chart["is_major"]].copy()
+    if not major_events.empty:
+        st.markdown("#### ⭐ 주요 승부처 & WPA 모먼트")
+        for _, row in major_events.iloc[::-1].iterrows():
+            wpa_val = row['wpa']
+            wpa_color = "#E53935" if wpa_val > 0 else "#1E88E5"
+            st.markdown(
+                f"""
+                <div style="border-left: 4px solid #FFD700; background: rgba(255, 215, 0, 0.06); padding: 10px 14px; margin-bottom: 8px; border-radius: 4px;">
+                    <span style="font-weight: 800; color: #FFD700; margin-right: 6px;">{row['inning']}</span>
+                    <span>{row['event']}</span>
+                    <span style="float: right; font-weight: bold; color: {wpa_color};">
+                        WPA {wpa_val:+.1f}% ({home_name} 승률 {row['home_win_rate']:.1f}%)
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+# 7. 라인스코어 데이터프레임 생성
 def build_linescore_df(game_data):
     away_name = game_data.get("awayTeamName", "원정")
     home_name = game_data.get("homeTeamName", "홈")
@@ -141,7 +382,7 @@ def build_linescore_df(game_data):
         
     return pd.DataFrame(data)
 
-# 5. 박스스코어(타자/투수) 데이터프레임 생성 (실제 API 필드 매핑 적용)
+# 8. 박스스코어 데이터프레임 생성
 def build_boxscore_dfs(lineup_dict):
     if not isinstance(lineup_dict, dict):
         return pd.DataFrame(), pd.DataFrame()
@@ -149,12 +390,10 @@ def build_boxscore_dfs(lineup_dict):
     batters_raw = lineup_dict.get("batter", [])
     pitchers_raw = lineup_dict.get("pitcher", [])
     
-    # 1. 타자 기록표
     batter_rows = []
     for b in batters_raw:
         season_hra = b.get("seasonHra")
         season_hra_str = f"{float(season_hra):.3f}" if season_hra is not None and str(season_hra) != "" else "-"
-        
         bb_cnt = int(b.get("bb") or 0)
         hbp_cnt = int(b.get("hbp") or 0)
         
@@ -174,7 +413,6 @@ def build_boxscore_dfs(lineup_dict):
         })
     df_batters = pd.DataFrame(batter_rows)
     
-    # 2. 투수 기록표
     pitcher_rows = []
     for p in pitchers_raw:
         bb_cnt = int(p.get("bb") or 0)
@@ -197,7 +435,7 @@ def build_boxscore_dfs(lineup_dict):
     
     return df_batters, df_pitchers
 
-# 6. 주자 다이아몬드 & BSO 볼카운트 위젯 렌더러
+# 9. 주자 다이아몬드 & BSO 볼카운트 위젯 렌더러
 def render_game_status_widget(state):
     try:
         ball = int(state.get("ball", 0))
@@ -206,9 +444,9 @@ def render_game_status_widget(state):
     except (ValueError, TypeError):
         ball, strike, out = 0, 0, 0
 
-    base1 = str(state.get("base1", "0")) in ["1", 1]
-    base2 = str(state.get("base2", "0")) in ["1", 1]
-    base3 = str(state.get("base3", "0")) in ["1", 1]
+    base1 = str(state.get("base1", "0")) not in ["0", ""]
+    base2 = str(state.get("base2", "0")) not in ["0", ""]
+    base3 = str(state.get("base3", "0")) not in ["0", ""]
 
     c1 = "#FFB300" if base1 else "#333742"
     c2 = "#FFB300" if base2 else "#333742"
@@ -243,11 +481,136 @@ def render_game_status_widget(state):
         '</div>'
         '</div>'
     )
+    st.markdown(widget_html, unsafe_allow_html=True)
+
+# 10. 주요 하이라이트 이벤트 추출기
+def extract_highlights(text_relays, home_name="홈", away_name="원정"):
+    highlights = []
+    seen_no = set()
     
-    if hasattr(st, "html"):
-        st.html(widget_html)
-    else:
-        st.markdown(widget_html, unsafe_allow_html=True)
+    for at_bat in text_relays:
+        no = at_bat.get("no")
+        if no in seen_no:
+            continue
+        seen_no.add(no)
+
+        inn = at_bat.get("inn", "-")
+        half = "말" if str(at_bat.get("homeOrAway")) == "1" else "초"
+        inning_str = f"{inn}회{half}"
+        
+        text_options = at_bat.get("textOptions") or []
+        for opt in text_options:
+            text = (opt.get("text") or "").strip()
+            opt_type = opt.get("type")
+            
+            if not text or "==" in text or "공격" in text or opt_type in [0, 1, 8]:
+                if "승리투수" not in text and "종료" not in text:
+                    continue
+            
+            event_meta = None
+            if "홈런" in text or opt_type == 23:
+                event_meta = {"type": "홈런", "icon": "🔥", "color": "#E53935", "tag_bg": "#FFEBEE"}
+            elif any(k in text for k in ["득점", "적시타", "밀어내기", "홈인", "희생플라이"]):
+                event_meta = {"type": "득점", "icon": "⚾", "color": "#1E88E5", "tag_bg": "#E3F2FD"}
+            elif any(k in text for k in ["2루타", "3루타", "안타"]):
+                event_meta = {"type": "안타/장타", "icon": "🏏", "color": "#00897B", "tag_bg": "#E0F2F1"}
+            elif opt_type == 2 or "교체" in text:
+                event_meta = {"type": "선수교체", "icon": "🔄", "color": "#8E24AA", "tag_bg": "#F3E5F5"}
+            elif any(k in text for k in ["병살타", "삼중살", "낫아웃"]):
+                event_meta = {"type": "승부처", "icon": "⚠️", "color": "#FB8C00", "tag_bg": "#FFF3E0"}
+            elif "삼진" in text or opt_type == 13 and "삼진" in text:
+                event_meta = {"type": "삼진", "icon": "⚡", "color": "#546E7A", "tag_bg": "#ECEFF1"}
+            elif "승리투수" in text or "종료" in text:
+                event_meta = {"type": "경기결과", "icon": "🏁", "color": "#43A047", "tag_bg": "#E8F5E9"}
+                
+            if event_meta:
+                g_state = opt.get("currentGameState") or {}
+                h_score = g_state.get("homeScore", "-")
+                a_score = g_state.get("awayScore", "-")
+                score_display = f"{away_name} {a_score} : {h_score} {home_name}" if h_score != "-" else ""
+                
+                highlights.append({
+                    "inning": inning_str,
+                    "event_type": event_meta["type"],
+                    "icon": event_meta["icon"],
+                    "color": event_meta["color"],
+                    "tag_bg": event_meta["tag_bg"],
+                    "text": text,
+                    "score": score_display,
+                    "seqno": opt.get("seqno", 0)
+                })
+                
+    return highlights
+
+# 11. 하이라이트 타임라인 렌더러
+def render_highlight_timeline(text_relays, home_name="홈", away_name="원정"):
+    st.subheader("⏱️ 주요 장면 & 득점 하이라이트 피드")
+    
+    highlights = extract_highlights(text_relays, home_name, away_name)
+    if not highlights:
+        st.info("아직 기록된 주요 하이라이트(득점/장타/교체) 이벤트가 없습니다.")
+        return
+
+    filter_option = st.radio(
+        "이벤트 필터",
+        options=["전체", "🔥 홈런/득점", "🏏 안타/장타", "🔄 선수 교체", "⚡ 삼진/승부처"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+    filtered = []
+    for h in highlights:
+        etype = h["event_type"]
+        if filter_option == "전체":
+            filtered.append(h)
+        elif filter_option == "🔥 홈런/득점" and etype in ["홈런", "득점", "경기결과"]:
+            filtered.append(h)
+        elif filter_option == "🏏 안타/장타" and etype in ["안타/장타", "홈런"]:
+            filtered.append(h)
+        elif filter_option == "🔄 선수 교체" and etype == "선수교체":
+            filtered.append(h)
+        elif filter_option == "⚡ 삼진/승부처" and etype in ["삼진", "승부처"]:
+            filtered.append(h)
+
+    if not filtered:
+        st.caption("선택한 필터 조건에 해당하는 주요 장면이 없습니다.")
+        return
+
+    st.caption(f"총 {len(filtered)}개의 주요 이벤트")
+    for item in filtered:
+        st.markdown(
+            f"""
+            <div style="
+                border-left: 5px solid {item['color']};
+                background: rgba(245, 247, 250, 0.08);
+                border-radius: 4px 10px 10px 4px;
+                padding: 12px 16px;
+                margin-bottom: 12px;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div>
+                        <span style="font-weight: 800; font-size: 1rem; margin-right: 8px;">{item['inning']}</span>
+                        <span style="
+                            background-color: {item['tag_bg']};
+                            color: {item['color']};
+                            font-size: 0.8rem;
+                            font-weight: 700;
+                            padding: 3px 8px;
+                            border-radius: 6px;
+                        ">{item['icon']} {item['event_type']}</span>
+                    </div>
+                    <span style="font-size: 0.88rem; font-weight: bold; color: #8E94A0;">
+                        {item['score']}
+                    </span>
+                </div>
+                <div style="font-size: 0.95rem; line-height: 1.5; font-weight: 500;">
+                    {item['text']}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
 # --- 대시보드 메인 UI ---
@@ -256,14 +619,14 @@ st.title("⚾ KBO 실시간 & 경기 기록 대시보드")
 # 사이드바 1: 날짜 탐색
 st.sidebar.header("📅 날짜 선택")
 if "target_date" not in st.session_state:
-    st.session_state["target_date"] = datetime(2026, 8, 27).date()
+    st.session_state["target_date"] = today_kst
 
 c_prev, c_today, c_next = st.sidebar.columns(3)
 if c_prev.button("◀ 이전"):
     st.session_state["target_date"] -= timedelta(days=1)
     st.rerun()
 if c_today.button("오늘"):
-    st.session_state["target_date"] = datetime.now().date()
+    st.session_state["target_date"] = today_kst
     st.rerun()
 if c_next.button("다음 ▶"):
     st.session_state["target_date"] += timedelta(days=1)
@@ -301,9 +664,24 @@ else:
     selected_game_id = game_options[selected_label]
     current_game_summary = next((g for g in games if g["game_id"] == selected_game_id), {})
     
-    # 경기 상세 및 문자 중계/라인업 데이터 호출
+    # 경기 상세 데이터 호출
     game_detail = fetch_game_detail(selected_game_id)
-    text_relays, current_state, home_lineup, away_lineup = fetch_relay(selected_game_id)
+    
+    # 총 이닝 수 계산 (연장 포함)
+    away_innings = game_detail.get("awayTeamScoreByInning") or []
+    home_innings = game_detail.get("homeTeamScoreByInning") or []
+    total_innings = max(len(away_innings), len(home_innings), 9)
+
+    curr_inn_str = str(game_detail.get("currentInning") or current_game_summary.get("status", ""))
+    inn_match = re.search(r'(\d+)회', curr_inn_str)
+    if inn_match:
+        total_innings = max(total_innings, int(inn_match.group(1)))
+
+    # 1회부터 마지막 회까지 전 이닝 중계 병렬 수집
+    all_text_relays = fetch_all_innings_relay(selected_game_id, total_innings)
+    
+    # 실시간 현재 상황판/라인업 조회
+    text_relays_latest, current_state, home_lineup, away_lineup = fetch_relay(selected_game_id)
 
     away_name = game_detail.get('awayTeamFullName') or game_detail.get('awayTeamName') or current_game_summary.get('away', '원정')
     home_name = game_detail.get('homeTeamFullName') or game_detail.get('homeTeamName') or current_game_summary.get('home', '홈')
@@ -339,7 +717,7 @@ else:
 
     st.divider()
 
-    # 취소/시작 전 분기 처리
+    # 경기 상태 분기
     if current_game_summary.get("cancel") or "취소" in status_info:
         st.warning("🌧️ 우천 또는 그라운드 사정 등으로 취소된 경기입니다.")
     elif "시작전" in status_info or "경기전" in status_info or status_info == "BEFORE":
@@ -351,16 +729,30 @@ else:
 
         st.divider()
 
-        # 2. [핵심] 실시간 중계 피드 & 선수별 기록실(Boxscore) 탭 분리
-        tab_relay, tab_boxscore = st.tabs(["📋 실시간 중계 피드", "📊 선수별 기록실 (Boxscore)"])
+        # 2. 탭 구성
+        tab_highlight, tab_win_rate, tab_relay, tab_boxscore = st.tabs([
+            "⏱️ 주요 하이라이트", 
+            "📈 실시간 승리 확률",
+            "📋 실시간 상세 중계", 
+            "📊 선수별 기록실 (Boxscore)"
+        ])
 
-        # 탭 1: 실시간 타석/투구 상세 중계
+        # 탭 1: 주요 하이라이트
+        with tab_highlight:
+            render_highlight_timeline(all_text_relays or text_relays_latest, home_name, away_name)
+
+        # 탭 2: 실시간 승리 확률 그래프 (전체 & 1회~10회 회차별 개별 선택 지원)
+        with tab_win_rate:
+            render_win_expectancy_chart(all_text_relays or text_relays_latest, home_name, away_name)
+
+        # 탭 3: 실시간 상세 중계
         with tab_relay:
             st.subheader("📋 타석 및 투구 상세 중계")
-            if text_relays:
-                st.caption(f"총 {len(text_relays)}개의 타석/이닝 이벤트")
+            relay_display_source = all_text_relays if all_text_relays else text_relays_latest
+            if relay_display_source:
+                st.caption(f"총 {len(relay_display_source)}개의 타석/이닝 이벤트")
                 
-                for at_bat in reversed(text_relays):
+                for at_bat in reversed(relay_display_source):
                     title = at_bat.get("title", "").strip()
                     inning = at_bat.get("inn", "")
                     text_options = at_bat.get("textOptions") or []
@@ -378,9 +770,9 @@ else:
                     b = state.get("ball", "-")
                     s = state.get("strike", "-")
                     o = state.get("out", "-")
-                    b1 = "1루" if str(state.get("base1")) == "1" else ""
-                    b2 = "2루" if str(state.get("base2")) == "1" else ""
-                    b3 = "3루" if str(state.get("base3")) == "1" else ""
+                    b1 = "1루" if str(state.get("base1")) not in ["0", ""] else ""
+                    b2 = "2루" if str(state.get("base2")) not in ["0", ""] else ""
+                    b3 = "3루" if str(state.get("base3")) not in ["0", ""] else ""
                     runners = ", ".join(filter(None, [b1, b2, b3])) or "주자 없음"
 
                     if any(k in final_text for k in ["홈런", "적시타", "2루타", "3루타", "안타", "득점", "끝내기"]):
@@ -415,13 +807,11 @@ else:
             else:
                 st.info("문자 중계 데이터가 등록되어 있지 않습니다.")
 
-        # 탭 2: 선수별 박스스코어 세부 기록실
+        # 탭 4: 박스스코어
         with tab_boxscore:
             st.subheader("📊 양 팀 선수별 상세 기록실 (Boxscore)")
             
-            # 원정팀 / 홈팀 하위 탭 분리
             subtab_away, subtab_home = st.tabs([f"원정팀: {away_name}", f"홈팀: {home_name}"])
-            
             away_batters, away_pitchers = build_boxscore_dfs(away_lineup)
             home_batters, home_pitchers = build_boxscore_dfs(home_lineup)
             
