@@ -7,6 +7,7 @@ from game_preferences import TEAMS, load_favorite, save_favorite, is_favorite, o
 from game_summary import build_game_summary, is_game_finished
 from highlight_events import extract_highlights
 from relay_filters import RESULT_FILTERS, available_innings, filter_relays
+from standings import build_standings, normalize_team
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -78,6 +79,36 @@ def fetch_games_by_date(target_date: str):
         return parsed
     except Exception:
         return []
+
+
+@st.cache_data(ttl=300)
+def fetch_team_standings(season: int):
+    base_url = f"https://api-gw.sports.naver.com/statistics/categories/kbo/seasons/{season}"
+    headers = {**DEFAULT_HEADERS, "Referer": "https://m.sports.naver.com/kbaseball/record/kbo"}
+    try:
+        standings_response = httpx.get(
+            f"{base_url}/teams",
+            params={"gameType": "REGULAR_SEASON"},
+            headers=headers,
+            timeout=7.0,
+            follow_redirects=True,
+        )
+        recent_response = httpx.get(
+            f"{base_url}/teams/last-ten-games",
+            headers=headers,
+            timeout=7.0,
+            follow_redirects=True,
+        )
+        standings_response.raise_for_status()
+        recent_response.raise_for_status()
+        standings_result = (standings_response.json() or {}).get("result") or {}
+        recent_result = (recent_response.json() or {}).get("result") or {}
+        return (
+            standings_result.get("seasonTeamStats") or [],
+            recent_result.get("seasonTeamLastTenGameStats") or [],
+        )
+    except Exception:
+        return [], []
 
 # 2. 경기 상세 조회
 def fetch_game_detail(game_id: str):
@@ -625,6 +656,56 @@ def reset_relay_filters():
     st.session_state.relay_result_types = []
 
 
+def render_team_standings(favorite_team):
+    st.header(f"🏆 {today_kst.year} KBO 팀 순위")
+    team_stats, recent_stats = fetch_team_standings(today_kst.year)
+    if not team_stats:
+        st.error("팀 순위를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        if st.button("순위 다시 불러오기"):
+            fetch_team_standings.clear()
+            st.rerun()
+        return
+
+    rows, next_game = build_standings(team_stats, recent_stats, favorite_team)
+    dataframe = pd.DataFrame(rows)
+
+    if favorite_team != "선택 안 함":
+        favorite = normalize_team(favorite_team)
+
+        def highlight_favorite(row):
+            color = "background-color: rgba(255, 193, 7, 0.18); font-weight: 700;" if row["팀"] == favorite else ""
+            return [color] * len(row)
+
+        display_table = dataframe.style.apply(highlight_favorite, axis=1).format({"승률": "{:.3f}", "1위 차": "{:.1f}"})
+    else:
+        display_table = dataframe.style.format({"승률": "{:.3f}", "1위 차": "{:.1f}"})
+
+    st.dataframe(
+        display_table,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "응원": st.column_config.TextColumn("", width="small"),
+            "득실차": st.column_config.NumberColumn("득실차", format="%+d"),
+        },
+    )
+    st.caption("득실차는 시즌 총득점−총실점, 5위 차는 현재 5위 팀과의 게임 차입니다.")
+
+    if favorite_team == "선택 안 함":
+        st.info("사이드바에서 응원팀을 선택하면 해당 팀을 강조하고 다음 경기를 보여줍니다.")
+    else:
+        st.subheader(f"⭐ {favorite_team} 다음 경기")
+        if next_game and next_game["date"] != "일정 미정":
+            location = f" · {next_game['location']} 경기" if next_game["location"] else ""
+            st.info(f"**{next_game['date']} · vs {next_game['opponent']}**{location}")
+        else:
+            st.caption("예정된 다음 경기 정보가 없습니다.")
+
+    if st.button("🔄 순위 새로고침"):
+        fetch_team_standings.clear()
+        st.rerun()
+
+
 # --- 대시보드 메인 UI ---
 st.title("⚾ KBO 실시간 & 경기 기록 대시보드")
 
@@ -648,6 +729,16 @@ favorite_team = st.sidebar.selectbox("응원팀", TEAMS, key="favorite_team", on
 st.sidebar.caption("이 앱의 로컬 설정에 저장됩니다. 같은 서버의 이용자는 저장 설정을 공유합니다.")
 if st.session_state.get("favorite_save_error"):
     st.sidebar.warning(st.session_state.favorite_save_error)
+
+st.sidebar.divider()
+dashboard_view = st.sidebar.radio(
+    "화면 선택",
+    ("⚾ 경기 중계", "🏆 팀 순위"),
+    key="dashboard_view",
+)
+if dashboard_view == "🏆 팀 순위":
+    render_team_standings(favorite_team)
+    st.stop()
 
 # 사이드바 2: 실시간 자동 새로고침 설정
 st.sidebar.divider()

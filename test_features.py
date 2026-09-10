@@ -8,6 +8,7 @@ from game_preferences import load_favorite, save_favorite, choose_game, ordered_
 from game_summary import build_game_summary, is_game_finished
 from highlight_events import classify_highlight, extract_highlights
 from relay_filters import available_innings, filter_relays
+from standings import build_standings
 
 GAMES = [dict(gameId='a', homeTeamName='LG', awayTeamName='두산', statusCode='BEFORE', statusInfo='경기전'), dict(gameId='b', homeTeamName='kt', awayTeamName='한화', statusCode='BEFORE', statusInfo='경기전')]
 
@@ -69,6 +70,31 @@ def finished_response(url, **kwargs):
         }}})
     games = [dict(gameId='done', homeTeamName='LG', awayTeamName='두산', homeTeamScore=2, awayTeamScore=1, statusCode='RESULT', statusInfo='경기종료')]
     return Response({'result': {'games': games}})
+
+
+def standings_response(url, **kwargs):
+    if url.endswith('/teams/last-ten-games'):
+        return Response({'result': {'seasonTeamLastTenGameStats': [
+            {'teamId': 'KT', 'lastTenGameResult': '7승 1무 2패'},
+            {'teamId': 'SS', 'lastTenGameResult': '6승 0무 4패'},
+        ]}})
+    if '/statistics/categories/kbo/seasons/' in url and url.endswith('/teams'):
+        return Response({'result': {'seasonTeamStats': [
+            {
+                'teamId': 'KT', 'teamName': 'KT', 'ranking': 1, 'gameCount': 100,
+                'winGameCount': 60, 'drawnGameCount': 2, 'loseGameCount': 38,
+                'wra': 0.612, 'gameBehind': 0, 'continuousGameResult': '3승',
+                'offenseRun': 520, 'defenseR': 420,
+                'nextScheduleGameId': '20260911KTLT02026', 'opposingTeamName': '롯데',
+            },
+            {
+                'teamId': 'SS', 'teamName': '삼성', 'ranking': 5, 'gameCount': 100,
+                'winGameCount': 50, 'drawnGameCount': 2, 'loseGameCount': 48,
+                'wra': 0.510, 'gameBehind': 10, 'continuousGameResult': '2패',
+                'offenseRun': 450, 'defenseR': 460,
+            },
+        ]}})
+    return Response()
 
 class Features(unittest.TestCase):
     def setUp(self):
@@ -148,6 +174,20 @@ class Features(unittest.TestCase):
         self.assertEqual(summary["mvp_candidate"], "홈타자 · 2안타 1홈런 2타점 1득점")
         self.assertEqual(len(summary["key_events"]), 2)
 
+    def test_standings_merge_favorite_and_recent_form(self):
+        team_stats = [
+            {'teamId': 'KT', 'teamName': 'KT', 'ranking': 1, 'gameCount': 100, 'winGameCount': 60, 'drawnGameCount': 2, 'loseGameCount': 38, 'wra': .612, 'gameBehind': 0, 'continuousGameResult': '3승', 'offenseRun': 520, 'defenseR': 420, 'nextScheduleGameId': '20260911KTLT02026', 'opposingTeamName': '롯데'},
+            {'teamId': 'SS', 'teamName': '삼성', 'ranking': 5, 'gameCount': 100, 'winGameCount': 50, 'drawnGameCount': 2, 'loseGameCount': 48, 'wra': .510, 'gameBehind': 10, 'continuousGameResult': '2패', 'offenseRun': 450, 'defenseR': 460},
+            {'teamId': 'HH', 'teamName': '한화', 'ranking': 6, 'gameCount': 100, 'winGameCount': 48, 'drawnGameCount': 2, 'loseGameCount': 50, 'wra': .490, 'gameBehind': 12, 'continuousGameResult': '1승', 'offenseRun': 430, 'defenseR': 470},
+        ]
+        recent = [{'teamId': 'KT', 'lastTenGameResult': '7승 1무 2패'}]
+        rows, next_game = build_standings(team_stats, recent, 'KT')
+        self.assertEqual(rows[0]['응원'], '⭐')
+        self.assertEqual(rows[0]['최근 10경기'], '7승 1무 2패')
+        self.assertEqual(rows[0]['득실차'], 100)
+        self.assertEqual(rows[2]['5위 차'], '5위와 2.0G')
+        self.assertEqual(next_game, {'date': '09월 11일', 'opponent': '롯데', 'location': '원정', 'game_id': '20260911KTLT02026'})
+
     def test_preferences(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'preferences.json'
@@ -203,5 +243,15 @@ class Features(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(tab.label == '📝 경기 종료 요약' for tab in app.tabs))
         self.assertTrue(any('LG 승리' in message.value for message in app.success))
+
+    @patch('httpx.get', side_effect=standings_response)
+    @patch('game_preferences.load_favorite', return_value='KT')
+    def test_standings_ui(self, *_):
+        app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
+        app.radio(key='dashboard_view').set_value('🏆 팀 순위').run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any('KBO 팀 순위' in header.value for header in app.header))
+        self.assertTrue(any('vs 롯데' in message.value for message in app.info))
+        self.assertGreaterEqual(len(app.dataframe), 1)
 
 if __name__ == '__main__': unittest.main()
