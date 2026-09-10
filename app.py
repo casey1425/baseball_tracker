@@ -3,6 +3,7 @@ import httpx
 import pandas as pd
 import plotly.graph_objects as go
 import re
+from game_preferences import TEAMS, load_favorite, save_favorite, is_favorite, ordered_games, choose_game
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -613,6 +614,23 @@ def render_highlight_timeline(text_relays, home_name="홈", away_name="원정"):
         )
 
 
+def change_favorite():
+    try:
+        save_favorite(st.session_state.favorite_team)
+        st.session_state.pop("favorite_save_error", None)
+    except OSError:
+        st.session_state.favorite_save_error = "응원팀을 파일에 저장하지 못했습니다. 이번 세션에서는 유지됩니다."
+    st.session_state.pop("selected_game_id", None)
+
+
+def select_card(game_id):
+    st.session_state.selected_game_id = game_id
+
+
+def move_date(days=None):
+    st.session_state.target_date = today_kst if days is None else st.session_state.target_date + timedelta(days=days)
+
+
 # --- 대시보드 메인 UI ---
 st.title("⚾ KBO 실시간 & 경기 기록 대시보드")
 
@@ -622,19 +640,20 @@ if "target_date" not in st.session_state:
     st.session_state["target_date"] = today_kst
 
 c_prev, c_today, c_next = st.sidebar.columns(3)
-if c_prev.button("◀ 이전"):
-    st.session_state["target_date"] -= timedelta(days=1)
-    st.rerun()
-if c_today.button("오늘"):
-    st.session_state["target_date"] = today_kst
-    st.rerun()
-if c_next.button("다음 ▶"):
-    st.session_state["target_date"] += timedelta(days=1)
-    st.rerun()
-
-selected_date = st.sidebar.date_input("날짜 지정", st.session_state["target_date"])
-st.session_state["target_date"] = selected_date
+c_prev.button("◀ 이전", on_click=move_date, args=(-1,))
+c_today.button("오늘", on_click=move_date)
+c_next.button("다음 ▶", on_click=move_date, args=(1,))
+selected_date = st.sidebar.date_input("날짜 지정", key="target_date")
 date_str = selected_date.strftime("%Y-%m-%d")
+
+st.sidebar.divider()
+st.sidebar.header("⭐ 응원팀 즐겨찾기")
+if "favorite_team" not in st.session_state:
+    st.session_state.favorite_team = load_favorite()
+favorite_team = st.sidebar.selectbox("응원팀", TEAMS, key="favorite_team", on_change=change_favorite)
+st.sidebar.caption("이 앱의 로컬 설정에 저장됩니다. 같은 서버의 이용자는 저장 설정을 공유합니다.")
+if st.session_state.get("favorite_save_error"):
+    st.sidebar.warning(st.session_state.favorite_save_error)
 
 # 사이드바 2: 실시간 자동 새로고침 설정
 st.sidebar.divider()
@@ -649,21 +668,39 @@ if auto_refresh:
     else:
         st.sidebar.warning("`pip install streamlit-autorefresh`가 필요합니다.")
 
-# 경기 목록 호출
-games = fetch_games_by_date(date_str)
+# 전체 경기 카드는 선택한 날짜와 함께 이동하며, 첫 화면은 한국 시간 오늘입니다.
+games = ordered_games(fetch_games_by_date(date_str), favorite_team)
+st.subheader("📅 오늘 전체 경기" if selected_date == today_kst else f"📅 {date_str} 전체 경기")
 
 if not games:
-    st.warning(f"[{date_str}] 진행되거나 등록된 KBO 경기가 없습니다. (월요일 휴식일 또는 경기 미편성)")
+    st.session_state.pop("selected_game_id", None)
+    st.info(f"[{date_str}] 등록된 경기가 없거나 경기 목록을 불러오지 못했습니다.")
 else:
+    st.session_state.selected_game_id = choose_game(games, favorite_team, st.session_state.get("selected_game_id"))
+    game_by_id = {g["game_id"]: g for g in games}
+
+    def game_label(game_id):
+        g = game_by_id[game_id]
+        star = "⭐ " if is_favorite(g, favorite_team) else ""
+        return f"{star}[{g['status']}] {g['away']} {g['away_score']} vs {g['home_score']} {g['home']} ({g['venue']})"
+
     st.sidebar.divider()
-    game_options = {
-        f"[{g['status']}] {g['away']} {g['away_score']} vs {g['home_score']} {g['home']} ({g['venue']})": g['game_id'] 
-        for g in games
-    }
-    selected_label = st.sidebar.selectbox("경기를 선택하세요", list(game_options.keys()))
-    selected_game_id = game_options[selected_label]
-    current_game_summary = next((g for g in games if g["game_id"] == selected_game_id), {})
-    
+    selected_game_id = st.sidebar.selectbox("경기를 선택하세요", list(game_by_id), format_func=game_label, key="selected_game_id")
+    for offset in range(0, len(games), 3):
+        columns = st.columns(min(3, len(games) - offset))
+        for column, game in zip(columns, games[offset:offset + 3]):
+            with column:
+                with st.container(border=True):
+                    star = "⭐ " if is_favorite(game, favorite_team) else ""
+                    st.subheader(f"{star}{game['away']} vs {game['home']}")
+                    before = game["status_code"] == "BEFORE" or any(word in str(game["status"]) for word in ("시작전", "경기전"))
+                    st.markdown("### — : —" if game["cancel"] or before else f"### {game['away_score']} : {game['home_score']}")
+                    st.caption(f"{'취소' if game['cancel'] else game['status']} · {game['venue']}")
+                    selected = game["game_id"] == selected_game_id
+                    st.button("선택된 경기" if selected else "경기 보기", key=f"game_card_{game['game_id']}", type="primary" if selected else "secondary", use_container_width=True, on_click=select_card, args=(game["game_id"],))
+    st.divider()
+    current_game_summary = game_by_id[selected_game_id]
+
     # 경기 상세 데이터 호출
     game_detail = fetch_game_detail(selected_game_id)
     
