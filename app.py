@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import re
 from game_preferences import TEAMS, load_favorite, save_favorite, is_favorite, ordered_games, choose_game
+from game_summary import build_game_summary, is_game_finished
 from highlight_events import extract_highlights
 from relay_filters import RESULT_FILTERS, available_innings, filter_relays
 from concurrent.futures import ThreadPoolExecutor
@@ -559,6 +560,48 @@ def render_highlight_timeline(text_relays, home_name="홈", away_name="원정"):
         )
 
 
+def render_game_summary(game_detail, text_relays, home_name, away_name, home_lineup, away_lineup):
+    summary = build_game_summary(
+        game_detail,
+        text_relays,
+        home_name,
+        away_name,
+        home_lineup,
+        away_lineup,
+    )
+    st.subheader("📝 경기 종료 요약")
+    st.success(summary["headline"])
+
+    decisive = summary["decisive_event"]
+    metric_score, metric_leads, metric_margin, metric_wpa = st.columns(4)
+    metric_score.metric("최종 스코어", summary["final_score"])
+    metric_leads.metric("리드 교체", f"{summary['lead_changes']}회")
+    metric_margin.metric("최대 점수 차", f"{summary['largest_lead']}점")
+    metric_wpa.metric("최대 WPA 변동", f"{decisive['abs_wpa']:.1f}%" if decisive else "자료 없음")
+
+    if summary["mvp_candidate"]:
+        st.markdown(f"#### ⭐ 타자 MVP 후보\n{summary['mvp_candidate']}")
+
+    if decisive:
+        st.markdown("#### 🎯 승부를 가른 장면")
+        st.info(
+            f"**{decisive['inning']} · WPA {decisive['wpa']:+.1f}%**  \n"
+            f"{decisive['description']}  \n"
+            f"{decisive['score']}"
+        )
+
+    st.markdown("#### 주요 승부처 TOP 5")
+    if not summary["key_events"]:
+        st.caption("승리 확률 데이터가 없어 주요 승부처를 계산할 수 없습니다.")
+        return
+    for rank, event in enumerate(summary["key_events"], start=1):
+        with st.container(border=True):
+            st.markdown(f"**{rank}. {event['inning']} · WPA {event['wpa']:+.1f}%**")
+            st.write(event["description"])
+            if event["score"]:
+                st.caption(event["score"])
+
+
 def change_favorite():
     try:
         save_favorite(st.session_state.favorite_team)
@@ -717,13 +760,30 @@ else:
 
         st.divider()
 
-        # 2. 탭 구성
-        tab_highlight, tab_win_rate, tab_relay, tab_boxscore = st.tabs([
-            "⏱️ 주요 하이라이트", 
+        # 2. 탭 구성 (종료 경기에는 요약 탭 추가)
+        finished = is_game_finished(game_detail, current_game_summary)
+        tab_labels = [
+            "⏱️ 주요 하이라이트",
             "📈 실시간 승리 확률",
-            "📋 실시간 상세 중계", 
-            "📊 선수별 기록실 (Boxscore)"
-        ])
+            "📋 실시간 상세 중계",
+            "📊 선수별 기록실 (Boxscore)",
+        ]
+        if finished:
+            tab_labels.insert(0, "📝 경기 종료 요약")
+        tabs = st.tabs(tab_labels)
+        if finished:
+            tab_summary, tab_highlight, tab_win_rate, tab_relay, tab_boxscore = tabs
+            with tab_summary:
+                render_game_summary(
+                    game_detail,
+                    all_text_relays or text_relays_latest,
+                    home_name,
+                    away_name,
+                    home_lineup,
+                    away_lineup,
+                )
+        else:
+            tab_highlight, tab_win_rate, tab_relay, tab_boxscore = tabs
 
         # 탭 1: 주요 하이라이트
         with tab_highlight:

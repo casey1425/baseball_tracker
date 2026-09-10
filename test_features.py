@@ -5,6 +5,7 @@ from unittest.mock import patch
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 from game_preferences import load_favorite, save_favorite, choose_game, ordered_games
+from game_summary import build_game_summary, is_game_finished
 from highlight_events import classify_highlight, extract_highlights
 from relay_filters import available_innings, filter_relays
 
@@ -36,6 +37,37 @@ def live_response(url, **kwargs):
     if '/schedule/games/' in url:
         return Response({'result': {'game': {'statusInfo': '2회말'}}})
     games = [dict(gameId='live', homeTeamName='LG', awayTeamName='두산', statusCode='LIVE', statusInfo='2회말')]
+    return Response({'result': {'games': games}})
+
+
+def finished_response(url, **kwargs):
+    relays = [
+        {
+            "no": 1, "inn": 1, "homeOrAway": "0",
+            "metricOption": {"wpaByPlate": -8.0},
+            "textOptions": [{"seqno": 1, "text": "원정타자 : 2루타", "currentGameState": {"awayScore": 1, "homeScore": 0}}],
+            "title": "원정타자",
+        },
+        {
+            "no": 2, "inn": 9, "homeOrAway": "1",
+            "metricOption": {"wpaByPlate": 42.0},
+            "textOptions": [{"seqno": 2, "text": "홈타자 : 끝내기 홈런", "currentGameState": {"awayScore": 1, "homeScore": 2}}],
+            "title": "홈타자",
+        },
+    ]
+    lineup = {
+        "homeLineup": {"batter": [{"name": "홈타자", "hit": 2, "hr": 1, "rbi": 2, "run": 1}], "pitcher": []},
+        "awayLineup": {"batter": [{"name": "원정타자", "hit": 1, "hr": 0, "rbi": 1, "run": 1}], "pitcher": []},
+    }
+    if url.endswith('/relay'):
+        return Response({'result': {'textRelayData': {"textRelays": relays, **lineup}}})
+    if '/schedule/games/' in url:
+        return Response({'result': {'game': {
+            "statusCode": "RESULT", "statusInfo": "경기종료",
+            "awayTeamName": "두산", "homeTeamName": "LG",
+            "awayTeamScore": 1, "homeTeamScore": 2,
+        }}})
+    games = [dict(gameId='done', homeTeamName='LG', awayTeamName='두산', homeTeamScore=2, awayTeamScore=1, statusCode='RESULT', statusInfo='경기종료')]
     return Response({'result': {'games': games}})
 
 class Features(unittest.TestCase):
@@ -92,6 +124,30 @@ class Features(unittest.TestCase):
         self.assertEqual(classify_highlight("우익수 앞 1루타", 23), "안타/장타")
         self.assertEqual(classify_highlight("우익수 뒤 홈런", 23), "홈런")
 
+    def test_game_summary(self):
+        relays = [
+            {
+                "no": 1, "inn": 1, "homeOrAway": "0", "title": "원정타자",
+                "metricOption": {"wpaByPlate": -8.0},
+                "textOptions": [{"seqno": 1, "text": "원정타자 : 적시타", "currentGameState": {"awayScore": 1, "homeScore": 0}}],
+            },
+            {
+                "no": 2, "inn": 9, "homeOrAway": "1", "title": "홈타자",
+                "metricOption": {"wpaByPlate": 42.0},
+                "textOptions": [{"seqno": 2, "text": "홈타자 : 끝내기 홈런", "currentGameState": {"awayScore": 1, "homeScore": 2}}],
+            },
+        ]
+        detail = {"statusCode": "RESULT", "awayTeamScore": 1, "homeTeamScore": 2}
+        home_lineup = {"batter": [{"name": "홈타자", "hit": 2, "hr": 1, "rbi": 2, "run": 1}]}
+        summary = build_game_summary(detail, relays, "LG", "두산", home_lineup, {})
+        self.assertTrue(is_game_finished(detail))
+        self.assertEqual(summary["headline"], "LG 승리 · 두산 상대 2-1")
+        self.assertEqual(summary["lead_changes"], 1)
+        self.assertEqual(summary["largest_lead"], 1)
+        self.assertEqual(summary["decisive_event"]["wpa"], 42.0)
+        self.assertEqual(summary["mvp_candidate"], "홈타자 · 2안타 1홈런 2타점 1득점")
+        self.assertEqual(len(summary["key_events"]), 2)
+
     def test_preferences(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'preferences.json'
@@ -139,5 +195,13 @@ class Features(unittest.TestCase):
         app.text_input(key='relay_search').input('김인태').run()
         self.assertFalse(app.exception)
         self.assertTrue(any('전체 2개 중 1개' in caption.value for caption in app.caption))
+
+    @patch('httpx.get', side_effect=finished_response)
+    @patch('game_preferences.load_favorite', return_value='선택 안 함')
+    def test_finished_game_summary_ui(self, *_):
+        app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any(tab.label == '📝 경기 종료 요약' for tab in app.tabs))
+        self.assertTrue(any('LG 승리' in message.value for message in app.success))
 
 if __name__ == '__main__': unittest.main()
