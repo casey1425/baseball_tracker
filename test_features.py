@@ -2,16 +2,96 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 from game_preferences import load_favorite, save_favorite, choose_game, ordered_games
+from highlight_events import classify_highlight, extract_highlights
+from relay_filters import available_innings, filter_relays
 
 GAMES = [dict(gameId='a', homeTeamName='LG', awayTeamName='두산', statusCode='BEFORE', statusInfo='경기전'), dict(gameId='b', homeTeamName='kt', awayTeamName='한화', statusCode='BEFORE', statusInfo='경기전')]
 
 class Response:
+    status_code = 200
+
+    def __init__(self, payload=None):
+        self.payload = payload or {'result': {'games': GAMES}}
+
     def raise_for_status(self): pass
-    def json(self): return {'result': {'games': GAMES}}
+    def json(self): return self.payload
+
+
+def live_response(url, **kwargs):
+    relay = {
+        "result": {
+            "textRelayData": {
+                "textRelays": [
+                    {"no": 1, "inn": 1, "title": "김인태", "textOptions": [{"text": "김인태 : 홈런"}]},
+                    {"no": 2, "inn": 2, "title": "박찬호", "textOptions": [{"text": "박찬호 : 삼진 아웃"}]},
+                ]
+            }
+        }
+    }
+    if url.endswith('/relay'):
+        return Response(relay)
+    if '/schedule/games/' in url:
+        return Response({'result': {'game': {'statusInfo': '2회말'}}})
+    games = [dict(gameId='live', homeTeamName='LG', awayTeamName='두산', statusCode='LIVE', statusInfo='2회말')]
+    return Response({'result': {'games': games}})
 
 class Features(unittest.TestCase):
+    def setUp(self):
+        st.cache_data.clear()
+
+    def test_relay_filters(self):
+        relays = [
+            {"inn": 2, "title": "3번타자 김인태", "textOptions": [{"text": "김인태 : 우익수 뒤 홈런"}]},
+            {"inn": 10, "title": "투수 교체", "textOptions": [{"text": "홍길동 투수로 교체"}]},
+            {"inn": 1, "title": "1번타자 박찬호", "textOptions": [{"text": "박찬호 : 삼진 아웃"}]},
+        ]
+        self.assertEqual(available_innings(relays), ["1", "2", "10"])
+        self.assertEqual(filter_relays(relays, query=" 김인태 "), [relays[0]])
+        self.assertEqual(filter_relays(relays, inning="10"), [relays[1]])
+        self.assertEqual(filter_relays(relays, result_types=["홈런"]), [relays[0]])
+        self.assertEqual(filter_relays(relays, result_types=["삼진", "선수 교체"]), relays[1:])
+        self.assertEqual(filter_relays(relays, query="박찬호", inning="2"), [])
+
+    def test_result_filters_do_not_overlap(self):
+        home_run = {"inn": 1, "title": "타자", "textOptions": [{"text": "좌익수 뒤 홈런"}]}
+        strikeout = {"inn": 1, "title": "타자", "textOptions": [{"text": "삼진 아웃"}]}
+        single = {"inn": 1, "title": "타자", "textOptions": [{"text": "우익수 앞 1루타"}]}
+        run = {"inn": 1, "title": "주자", "textOptions": [{"text": "2루주자 홈인"}]}
+        self.assertEqual(filter_relays([home_run], result_types=["안타·장타"]), [])
+        self.assertEqual(filter_relays([strikeout], result_types=["아웃"]), [])
+        self.assertEqual(filter_relays([single], result_types=["안타·장타"]), [single])
+        self.assertEqual(filter_relays([run], result_types=["득점"]), [run])
+
+    def test_highlights_use_text_classification_and_chronological_order(self):
+        relays = [
+            {
+                "no": 2,
+                "inn": 4,
+                "homeOrAway": "0",
+                "textOptions": [
+                    {"seqno": 204, "type": 23, "text": "김민혁 : 우익수 앞 1루타", "currentGameState": {"awayScore": 5, "homeScore": 0}},
+                ],
+            },
+            {
+                "no": 1,
+                "inn": 4,
+                "homeOrAway": "0",
+                "textOptions": [
+                    {"seqno": 171, "type": 23, "text": "김상수 : 좌익수 앞 1루타", "currentGameState": {"awayScore": 1, "homeScore": 0}},
+                    {"seqno": 173, "type": 24, "text": "2루주자 김현수 : 홈인", "currentGameState": {"awayScore": 2, "homeScore": 0}},
+                ],
+            },
+        ]
+        highlights = extract_highlights(relays, "롯데", "KT")
+        self.assertEqual([event["seqno"] for event in highlights], [171, 173, 204])
+        self.assertEqual([event["event_type"] for event in highlights], ["안타/장타", "득점", "안타/장타"])
+        self.assertEqual([event["score"] for event in highlights], ["KT 1 : 0 롯데", "KT 2 : 0 롯데", "KT 5 : 0 롯데"])
+        self.assertEqual(classify_highlight("우익수 앞 1루타", 23), "안타/장타")
+        self.assertEqual(classify_highlight("우익수 뒤 홈런", 23), "홈런")
+
     def test_preferences(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'preferences.json'
@@ -47,5 +127,17 @@ class Features(unittest.TestCase):
         next(b for b in app.button if b.label == '◀ 이전').click().run()
         self.assertEqual((old_date - app.session_state['target_date']).days, 1)
         self.assertFalse(app.exception)
+
+    @patch('httpx.get', side_effect=live_response)
+    @patch('game_preferences.load_favorite', return_value='선택 안 함')
+    def test_relay_filter_ui(self, *_):
+        app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_input(key='relay_search').value, '')
+        self.assertEqual(app.selectbox(key='relay_inning').options, ['전체 이닝', '1회', '2회'])
+        self.assertEqual(app.multiselect(key='relay_result_types').options[0], '홈런')
+        app.text_input(key='relay_search').input('김인태').run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any('전체 2개 중 1개' in caption.value for caption in app.caption))
 
 if __name__ == '__main__': unittest.main()

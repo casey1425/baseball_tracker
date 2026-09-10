@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import re
 from game_preferences import TEAMS, load_favorite, save_favorite, is_favorite, ordered_games, choose_game
+from highlight_events import extract_highlights
+from relay_filters import RESULT_FILTERS, available_innings, filter_relays
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -484,66 +486,7 @@ def render_game_status_widget(state):
     )
     st.markdown(widget_html, unsafe_allow_html=True)
 
-# 10. 주요 하이라이트 이벤트 추출기
-def extract_highlights(text_relays, home_name="홈", away_name="원정"):
-    highlights = []
-    seen_no = set()
-    
-    for at_bat in text_relays:
-        no = at_bat.get("no")
-        if no in seen_no:
-            continue
-        seen_no.add(no)
-
-        inn = at_bat.get("inn", "-")
-        half = "말" if str(at_bat.get("homeOrAway")) == "1" else "초"
-        inning_str = f"{inn}회{half}"
-        
-        text_options = at_bat.get("textOptions") or []
-        for opt in text_options:
-            text = (opt.get("text") or "").strip()
-            opt_type = opt.get("type")
-            
-            if not text or "==" in text or "공격" in text or opt_type in [0, 1, 8]:
-                if "승리투수" not in text and "종료" not in text:
-                    continue
-            
-            event_meta = None
-            if "홈런" in text or opt_type == 23:
-                event_meta = {"type": "홈런", "icon": "🔥", "color": "#E53935", "tag_bg": "#FFEBEE"}
-            elif any(k in text for k in ["득점", "적시타", "밀어내기", "홈인", "희생플라이"]):
-                event_meta = {"type": "득점", "icon": "⚾", "color": "#1E88E5", "tag_bg": "#E3F2FD"}
-            elif any(k in text for k in ["2루타", "3루타", "안타"]):
-                event_meta = {"type": "안타/장타", "icon": "🏏", "color": "#00897B", "tag_bg": "#E0F2F1"}
-            elif opt_type == 2 or "교체" in text:
-                event_meta = {"type": "선수교체", "icon": "🔄", "color": "#8E24AA", "tag_bg": "#F3E5F5"}
-            elif any(k in text for k in ["병살타", "삼중살", "낫아웃"]):
-                event_meta = {"type": "승부처", "icon": "⚠️", "color": "#FB8C00", "tag_bg": "#FFF3E0"}
-            elif "삼진" in text or opt_type == 13 and "삼진" in text:
-                event_meta = {"type": "삼진", "icon": "⚡", "color": "#546E7A", "tag_bg": "#ECEFF1"}
-            elif "승리투수" in text or "종료" in text:
-                event_meta = {"type": "경기결과", "icon": "🏁", "color": "#43A047", "tag_bg": "#E8F5E9"}
-                
-            if event_meta:
-                g_state = opt.get("currentGameState") or {}
-                h_score = g_state.get("homeScore", "-")
-                a_score = g_state.get("awayScore", "-")
-                score_display = f"{away_name} {a_score} : {h_score} {home_name}" if h_score != "-" else ""
-                
-                highlights.append({
-                    "inning": inning_str,
-                    "event_type": event_meta["type"],
-                    "icon": event_meta["icon"],
-                    "color": event_meta["color"],
-                    "tag_bg": event_meta["tag_bg"],
-                    "text": text,
-                    "score": score_display,
-                    "seqno": opt.get("seqno", 0)
-                })
-                
-    return highlights
-
-# 11. 하이라이트 타임라인 렌더러
+# 10. 하이라이트 타임라인 렌더러
 def render_highlight_timeline(text_relays, home_name="홈", away_name="원정"):
     st.subheader("⏱️ 주요 장면 & 득점 하이라이트 피드")
     
@@ -554,7 +497,7 @@ def render_highlight_timeline(text_relays, home_name="홈", away_name="원정"):
 
     filter_option = st.radio(
         "이벤트 필터",
-        options=["전체", "🔥 홈런/득점", "🏏 안타/장타", "🔄 선수 교체", "⚡ 삼진/승부처"],
+        options=["전체", "🔥 홈런", "⚾ 득점", "🏏 안타/장타", "🔄 선수 교체", "⚡ 삼진/승부처"],
         horizontal=True,
         label_visibility="collapsed"
     )
@@ -564,9 +507,11 @@ def render_highlight_timeline(text_relays, home_name="홈", away_name="원정"):
         etype = h["event_type"]
         if filter_option == "전체":
             filtered.append(h)
-        elif filter_option == "🔥 홈런/득점" and etype in ["홈런", "득점", "경기결과"]:
+        elif filter_option == "🔥 홈런" and etype == "홈런":
             filtered.append(h)
-        elif filter_option == "🏏 안타/장타" and etype in ["안타/장타", "홈런"]:
+        elif filter_option == "⚾ 득점" and etype == "득점":
+            filtered.append(h)
+        elif filter_option == "🏏 안타/장타" and etype == "안타/장타":
             filtered.append(h)
         elif filter_option == "🔄 선수 교체" and etype == "선수교체":
             filtered.append(h)
@@ -629,6 +574,12 @@ def select_card(game_id):
 
 def move_date(days=None):
     st.session_state.target_date = today_kst if days is None else st.session_state.target_date + timedelta(days=days)
+
+
+def reset_relay_filters():
+    st.session_state.relay_search = ""
+    st.session_state.relay_inning = "전체"
+    st.session_state.relay_result_types = []
 
 
 # --- 대시보드 메인 UI ---
@@ -787,9 +738,53 @@ else:
             st.subheader("📋 타석 및 투구 상세 중계")
             relay_display_source = all_text_relays if all_text_relays else text_relays_latest
             if relay_display_source:
-                st.caption(f"총 {len(relay_display_source)}개의 타석/이닝 이벤트")
+                inning_options = ["전체", *available_innings(relay_display_source)]
+                if st.session_state.get("relay_inning") not in inning_options:
+                    st.session_state.relay_inning = "전체"
+
+                search_col, inning_col = st.columns([3, 1])
+                with search_col:
+                    st.text_input(
+                        "선수 또는 중계 내용 검색",
+                        key="relay_search",
+                        placeholder="예: 김인태, 홈런, 슬라이더",
+                    )
+                with inning_col:
+                    st.selectbox(
+                        "이닝",
+                        inning_options,
+                        key="relay_inning",
+                        format_func=lambda value: "전체 이닝" if value == "전체" else f"{value}회",
+                    )
+
+                st.multiselect(
+                    "결과 유형",
+                    RESULT_FILTERS,
+                    key="relay_result_types",
+                    placeholder="전체 결과",
+                )
+                filtered_relays = filter_relays(
+                    relay_display_source,
+                    st.session_state.relay_search,
+                    st.session_state.relay_inning,
+                    st.session_state.relay_result_types,
+                )
+
+                count_col, reset_col = st.columns([5, 1])
+                count_col.caption(
+                    f"전체 {len(relay_display_source)}개 중 {len(filtered_relays)}개의 타석/이닝 이벤트"
+                )
+                reset_col.button(
+                    "필터 초기화",
+                    key="reset_relay_filters",
+                    use_container_width=True,
+                    on_click=reset_relay_filters,
+                )
+
+                if not filtered_relays:
+                    st.info("조건에 맞는 중계 기록이 없습니다. 검색어나 필터를 바꿔보세요.")
                 
-                for at_bat in reversed(relay_display_source):
+                for at_bat in reversed(filtered_relays):
                     title = at_bat.get("title", "").strip()
                     inning = at_bat.get("inn", "")
                     text_options = at_bat.get("textOptions") or []
