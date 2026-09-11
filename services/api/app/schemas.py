@@ -38,6 +38,13 @@ class WinProbabilityResponse(BaseModel):
     points: list[dict[str, Any]]
 
 
+class DashboardResponse(BaseModel):
+    game_id: str
+    game: dict[str, Any]
+    highlights: list[dict[str, Any]]
+    points: list[dict[str, Any]]
+
+
 class SummaryResponse(BaseModel):
     game_id: str
     summary: dict[str, Any]

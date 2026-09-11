@@ -107,6 +107,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(summary.status_code, 200)
         self.assertIn("LG 승리", summary.json()["summary"]["headline"])
 
+    def test_dashboard_endpoint(self):
+        response = self.client.get("/api/v1/games/game-1/dashboard")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["game"]["homeTeamName"], "LG")
+        self.assertEqual([event["event_type"] for event in payload["highlights"]], ["안타/장타", "홈런"])
+        self.assertEqual(len(payload["points"]), 3)
+
     def test_summary_requires_finished_game(self):
         self.fake.finished = False
         response = self.client.get("/api/v1/games/game-1/summary")

@@ -13,6 +13,7 @@ from win_probability import extract_win_probabilities
 
 from .naver import NaverSportsClient, get_naver_client
 from .schemas import (
+    DashboardResponse,
     GameResponse,
     GamesResponse,
     HealthResponse,
@@ -70,7 +71,11 @@ def _standings_response(rows, team_stats):
 
 async def _game_and_relays(client, game_id):
     game = await client.game_detail(game_id)
-    relays = await client.all_relays(game_id, _total_innings(game))
+    status_code = str(game.get("statusCode") or "").upper()
+    relay_unavailable = bool(game.get("cancel")) or status_code in {
+        "BEFORE", "READY", "SCHEDULED", "POSTPONED", "CANCEL", "CANCELED",
+    }
+    relays = [] if relay_unavailable else await client.all_relays(game_id, _total_innings(game))
     return game, relays
 
 
@@ -115,6 +120,19 @@ async def game_win_probability(game_id: str, client: NaverSportsClient = Depends
     game, relays = await _game_and_relays(client, game_id)
     home, away = _team_names(game)
     return {"game_id": game_id, "points": extract_win_probabilities(relays, home, away)}
+
+
+@router.get("/games/{game_id}/dashboard", response_model=DashboardResponse, tags=["analysis"])
+async def game_dashboard(game_id: str, client: NaverSportsClient = Depends(get_naver_client)):
+    """Return the data needed by the live dashboard with one relay collection."""
+    game, relays = await _game_and_relays(client, game_id)
+    home, away = _team_names(game)
+    return {
+        "game_id": game_id,
+        "game": game,
+        "highlights": extract_highlights(relays, home, away),
+        "points": extract_win_probabilities(relays, home, away),
+    }
 
 
 @router.get("/games/{game_id}/summary", response_model=SummaryResponse, tags=["analysis"])

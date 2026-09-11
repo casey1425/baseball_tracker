@@ -3,6 +3,8 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B?style=flat&logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Plotly](https://img.shields.io/badge/Plotly-5.18+-3F4F75?style=flat&logo=plotly&logoColor=white)](https://plotly.com/python/)
 [![HTTPX](https://img.shields.io/badge/HTTPX-Fast_HTTP_Client-1E88E5?style=flat)](https://www.python-httpx.org/)
 [![Pandas](https://img.shields.io/badge/Pandas-Data_Analysis-150458?style=flat&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
@@ -45,14 +47,22 @@ KBO 한국프로야구 리그의 **실시간 경기 진행 상황 및 과거 경
 - KBO 실시간 순위, 승·무·패, 승률, 최근 10경기, 연승·연패와 시즌 득실차 제공
 - 1위 및 5위와의 게임 차, 응원팀 강조, 응원팀의 다음 경기 정보 표시
 
+### 8. 🖥️ Next.js 실시간 통합 대시보드
+- 날짜별 전체 경기 카드와 응원팀 우선 선택, 선택 경기 라인스코어를 반응형 화면으로 제공
+- 10초 자동 갱신, 갱신 시각과 연결 오류 상태 표시, 실시간 갱신 ON/OFF 지원
+- SVG 승리 확률 차트, 주요 장면 카테고리 필터와 시즌 팀 순위를 한 화면에 통합
+- 승리 확률 그래프의 모든 구간에서 이닝·점수·타석 결과·WPA를 보여주는 마우스/터치 툴팁 지원
+- 응원팀을 브라우저에 저장하고 다음 접속에서도 유지
+- 외부 이미지 차단을 피하는 허용 도메인 기반 엠블럼 프록시와 이미지 실패 대체 UI 제공
+
 ---
 
 ## 🛠️ 기술 스택 (Tech Stack)
 
 | 분류 | 기술 |
 |---|---|
-| **Language** | Python 3.10+ |
-| **Frontend / Dashboard** | Streamlit, HTML5/CSS3 (SVG), `streamlit-autorefresh` |
+| **Language** | Python 3.10+, TypeScript 5 |
+| **Frontend / Dashboard** | Next.js 16, React 19, Streamlit, HTML5/CSS3 (SVG) |
 | **Backend API** | FastAPI, Pydantic, Uvicorn |
 | **Data Visualization** | Plotly (인터랙티브 승리 확률 곡선 및 승부처 마커) |
 | **Networking & Concurrency** | HTTPX (HTTP Client), `concurrent.futures.ThreadPoolExecutor` |
@@ -65,6 +75,12 @@ KBO 한국프로야구 리그의 **실시간 경기 진행 상황 및 과거 경
 ```text
 baseball_tracker/
 ├── app.py              # Streamlit 메인 대시보드 웹 애플리케이션
+├── frontend/           # Next.js + TypeScript 실시간 대시보드
+│   ├── app/            # App Router 페이지와 전역 스타일
+│   ├── components/     # 경기 현황과 승리 확률 UI
+│   ├── lib/            # FastAPI 클라이언트
+│   ├── types/          # API 응답 타입
+│   └── package-lock.json # npm 의존성 잠금 파일
 ├── services/api/       # FastAPI 백엔드와 네이버 스포츠 비동기 클라이언트
 ├── game_summary.py     # 경기 종료 요약 계산
 ├── highlight_events.py # 하이라이트 이벤트 추출
@@ -79,6 +95,11 @@ baseball_tracker/
 ---
 
 ## 🚀 실행 방법
+
+필수 환경:
+
+- Python 3.10 이상
+- Node.js 20.9 이상 및 npm
 
 ```bash
 python -m venv .venv
@@ -98,6 +119,18 @@ FastAPI 백엔드:
 uvicorn services.api.app.main:app --reload --port 8000
 ```
 
+Next.js 실시간 대시보드(새 터미널):
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+- 대시보드: `http://localhost:3000`
+- API 주소를 변경하려면 `frontend/.env.local`의 `NEXT_PUBLIC_API_BASE_URL`을 수정합니다.
+
 - API 문서: `http://localhost:8000/docs`
 - OpenAPI 스키마: `http://localhost:8000/openapi.json`
 - 프런트엔드 허용 출처: `KBO_CORS_ORIGINS` 환경 변수로 설정(기본값 `http://localhost:3000` 포함)
@@ -112,6 +145,7 @@ uvicorn services.api.app.main:app --reload --port 8000
 | GET | `/api/v1/games/{game_id}/relay` | 최신 또는 특정 이닝 중계 |
 | GET | `/api/v1/games/{game_id}/highlights` | 주요 하이라이트 |
 | GET | `/api/v1/games/{game_id}/win-probability` | 승리 확률과 WPA |
+| GET | `/api/v1/games/{game_id}/dashboard` | 대시보드용 경기 상세·하이라이트·승리 확률 통합 응답 |
 | GET | `/api/v1/games/{game_id}/summary` | 종료 경기 요약 |
 | GET | `/api/v1/standings` | 시즌 순위와 최근 흐름 |
 | GET | `/api/v1/teams/{team_name}/next-game` | 팀의 다음 경기 |

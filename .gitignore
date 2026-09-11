@@ -9,3 +9,10 @@ __pycache__/
 
 # Streamlit 캐시
 .streamlit/
+
+# Next.js / Node.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/*.tsbuildinfo
+.pnpm-store/
