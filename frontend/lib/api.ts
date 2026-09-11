@@ -2,6 +2,7 @@ import type {
   GameDetail,
   GameListItem,
   Highlight,
+  LiveSituation,
   Standing,
   WinProbabilityPoint,
 } from "@/types/baseball";
@@ -27,8 +28,14 @@ export async function fetchGameBundle(gameId: string, signal?: AbortSignal) {
     game: GameDetail;
     highlights: Highlight[];
     points: WinProbabilityPoint[];
+    live_situation: LiveSituation;
   }>(`/games/${encoded}/dashboard`, signal);
-  return { detail: dashboard.game, highlights: dashboard.highlights, points: dashboard.points };
+  return {
+    detail: dashboard.game,
+    highlights: dashboard.highlights,
+    points: dashboard.points,
+    liveSituation: dashboard.live_situation,
+  };
 }
 
 export async function fetchStandings(favoriteTeam: string, season: string, signal?: AbortSignal) {

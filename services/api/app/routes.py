@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from game_summary import build_game_summary, is_game_finished
 from highlight_events import extract_highlights
+from live_situation import build_live_situation, relay_is_available
 from standings import build_standings, normalize_team
 from win_probability import extract_win_probabilities
 
@@ -71,11 +72,7 @@ def _standings_response(rows, team_stats):
 
 async def _game_and_relays(client, game_id):
     game = await client.game_detail(game_id)
-    status_code = str(game.get("statusCode") or "").upper()
-    relay_unavailable = bool(game.get("cancel")) or status_code in {
-        "BEFORE", "READY", "SCHEDULED", "POSTPONED", "CANCEL", "CANCELED",
-    }
-    relays = [] if relay_unavailable else await client.all_relays(game_id, _total_innings(game))
+    relays = [] if not relay_is_available(game) else await client.all_relays(game_id, _total_innings(game))
     return game, relays
 
 
@@ -125,13 +122,22 @@ async def game_win_probability(game_id: str, client: NaverSportsClient = Depends
 @router.get("/games/{game_id}/dashboard", response_model=DashboardResponse, tags=["analysis"])
 async def game_dashboard(game_id: str, client: NaverSportsClient = Depends(get_naver_client)):
     """Return the data needed by the live dashboard with one relay collection."""
-    game, relays = await _game_and_relays(client, game_id)
+    game = await client.game_detail(game_id)
+    if relay_is_available(game):
+        relays, latest = await asyncio.gather(
+            client.all_relays(game_id, _total_innings(game)),
+            client.relay(game_id),
+        )
+    else:
+        relays = []
+        latest = {}
     home, away = _team_names(game)
     return {
         "game_id": game_id,
         "game": game,
         "highlights": extract_highlights(relays, home, away),
         "points": extract_win_probabilities(relays, home, away),
+        "live_situation": build_live_situation(game, latest),
     }
 
 

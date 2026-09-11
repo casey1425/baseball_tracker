@@ -85,6 +85,7 @@ class NaverSportsClient:
             "current_state": relay_data.get("currentGameState") or {},
             "home_lineup": relay_data.get("homeLineup") or {},
             "away_lineup": relay_data.get("awayLineup") or {},
+            "pitcher_vs_batter": relay_data.get("pitcherVsBatterCareerStats") or "",
         }
 
     async def all_relays(self, game_id, total_innings):

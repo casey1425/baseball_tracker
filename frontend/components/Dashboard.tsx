@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchGameBundle, fetchGames, fetchStandings } from "@/lib/api";
-import type { GameDetail, GameListItem, Highlight, Standing, WinProbabilityPoint } from "@/types/baseball";
+import type { GameDetail, GameListItem, Highlight, LiveSituation, Standing, WinProbabilityPoint } from "@/types/baseball";
+import { LiveSituationPanel } from "./LiveSituationPanel";
 import { WinProbabilityChart } from "./WinProbabilityChart";
 
 const KBO_TEAMS = ["LG", "한화", "SSG", "삼성", "NC", "KT", "롯데", "KIA", "두산", "키움"];
@@ -117,6 +118,7 @@ export function Dashboard() {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [points, setPoints] = useState<WinProbabilityPoint[]>([]);
+  const [liveSituation, setLiveSituation] = useState<LiveSituation | null>(null);
   const [standings, setStandings] = useState<Standing[]>([]);
   const [favorite, setFavorite] = useState("");
   const [filter, setFilter] = useState("전체");
@@ -156,6 +158,7 @@ export function Dashboard() {
       setDetail(null);
       setHighlights([]);
       setPoints([]);
+      setLiveSituation(null);
       return;
     }
     if (!silent) setDetailLoading(true);
@@ -164,6 +167,7 @@ export function Dashboard() {
       setDetail(bundle.detail);
       setHighlights(bundle.highlights);
       setPoints(bundle.points);
+      setLiveSituation(bundle.liveSituation);
       setError("");
       setUpdatedAt(new Date());
     } catch (err) {
@@ -252,6 +256,8 @@ export function Dashboard() {
                 <LineScore detail={detail} />
               </>}
             </article>
+
+            <LiveSituationPanel situation={liveSituation} />
 
             <article className="panel chart-panel">
               <div className="panel-title"><div><span>WIN PROBABILITY</span><h2>승리 확률</h2></div><small>★ 주요 승부처</small></div>

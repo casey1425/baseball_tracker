@@ -26,6 +26,7 @@ class RelayResponse(BaseModel):
     current_state: dict[str, Any]
     home_lineup: dict[str, Any]
     away_lineup: dict[str, Any]
+    pitcher_vs_batter: str = ""
 
 
 class HighlightsResponse(BaseModel):
@@ -43,6 +44,7 @@ class DashboardResponse(BaseModel):
     game: dict[str, Any]
     highlights: list[dict[str, Any]]
     points: list[dict[str, Any]]
+    live_situation: dict[str, Any]
 
 
 class SummaryResponse(BaseModel):

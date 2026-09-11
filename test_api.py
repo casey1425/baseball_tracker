@@ -31,9 +31,13 @@ class FakeNaverClient:
     async def relay(self, game_id, inning=None):
         return {
             "text_relays": self._relays(),
-            "current_state": {"homeScore": 2, "awayScore": 1},
-            "home_lineup": {"batter": [{"name": "홈타자", "hit": 2, "hr": 1, "rbi": 2, "run": 1}]},
-            "away_lineup": {"batter": []},
+            "current_state": {
+                "homeScore": 2, "awayScore": 1, "pitcher": "P1", "batter": "B1",
+                "ball": 1, "strike": 1, "out": 1, "base1": "R1", "base2": "0", "base3": "0",
+            },
+            "home_lineup": {"batter": [{"pcode": "B1", "name": "홈타자", "hit": 2, "hr": 1, "rbi": 2, "run": 1}]},
+            "away_lineup": {"batter": [], "pitcher": [{"pcode": "P1", "name": "원정투수"}]},
+            "pitcher_vs_batter": "시즌 첫 맞대결",
         }
 
     async def all_relays(self, game_id, total_innings):
@@ -67,9 +71,12 @@ class FakeNaverClient:
                 "textOptions": [{"seqno": 1, "type": 23, "text": "원정타자 : 2루타", "currentGameState": {"awayScore": 1, "homeScore": 0}}],
             },
             {
-                "no": 2, "inn": 9, "homeOrAway": "1", "title": "홈타자",
+                "no": 2, "inn": 9, "homeOrAway": "1", "title": "4번타자 홈타자",
                 "metricOption": {"homeTeamWinRate": 100.0, "awayTeamWinRate": 0.0, "wpaByPlate": 42.0},
-                "textOptions": [{"seqno": 2, "type": 23, "text": "홈타자 : 끝내기 홈런", "currentGameState": {"awayScore": 1, "homeScore": 2}}],
+                "textOptions": [
+                    {"seqno": 2, "type": 1, "pitchNum": 1, "pitchResult": "B", "stuff": "직구", "speed": "145", "text": "1구 볼"},
+                    {"seqno": 3, "type": 23, "text": "홈타자 : 끝내기 홈런", "currentGameState": {"awayScore": 1, "homeScore": 2}},
+                ],
             },
         ]
 
@@ -114,6 +121,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["game"]["homeTeamName"], "LG")
         self.assertEqual([event["event_type"] for event in payload["highlights"]], ["안타/장타", "홈런"])
         self.assertEqual(len(payload["points"]), 3)
+        situation = payload["live_situation"]
+        self.assertEqual(situation["pitcher"]["name"], "원정투수")
+        self.assertEqual(situation["batter"]["name"], "홈타자")
+        self.assertTrue(situation["bases"]["first"])
+        self.assertEqual(situation["recent_pitches"][0]["speed"], "145")
 
     def test_summary_requires_finished_game(self):
         self.fake.finished = False

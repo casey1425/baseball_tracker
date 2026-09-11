@@ -87,6 +87,60 @@ main { min-height: 100vh; }
 .line-score th, .line-score td { min-width: 29px; padding: 6px; }
 .line-score th:first-child, .line-score td:first-child { min-width: 70px; text-align: left; color: var(--text); font-weight: 700; }
 .line-score th:last-child, .line-score td:last-child { color: var(--accent); font-weight: 900; }
+.live-title { align-items: center; }
+.at-bat-status { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid rgba(75,211,138,.22); border-radius: 20px; color: var(--green); background: rgba(75,211,138,.07); font-size: 10px; font-weight: 800; }
+.at-bat-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 9px var(--green); animation: pulse 1.5s infinite; }
+.at-bat-status.final { color: var(--muted); border-color: var(--line); background: rgba(255,255,255,.025); }
+.at-bat-status.final i { background: var(--muted); box-shadow: none; animation: none; }
+.situation-meta { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.025); font-size: 11px; }
+.situation-meta b { color: var(--accent); }
+.situation-meta span { font-weight: 800; }
+.situation-meta small { color: var(--muted); margin-left: auto; }
+.live-situation-grid { display: grid; grid-template-columns: minmax(210px, .8fr) minmax(220px, .9fr) minmax(290px, 1.3fr); gap: 24px; align-items: center; margin-top: 22px; }
+.matchup-players { display: grid; grid-template-columns: 1fr 32px 1fr; align-items: center; gap: 8px; }
+.matchup-players > i { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #667169; background: rgba(255,255,255,.035); font-size: 9px; font-style: normal; font-weight: 900; }
+.player-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.025); }
+.player-card span { color: var(--muted); font-size: 8px; letter-spacing: .14em; }
+.player-card strong { display: block; margin-top: 7px; overflow: hidden; color: var(--text); font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.player-card.batter { border-color: rgba(255,207,74,.23); background: rgba(255,207,74,.055); }
+.player-card.batter strong { color: var(--accent); }
+.diamond-and-count { display: flex; align-items: center; justify-content: center; gap: 28px; }
+.base-diamond { position: relative; width: 112px; height: 94px; flex: 0 0 auto; }
+.base { position: absolute; width: 20px; height: 20px; border: 2px solid #536159; background: #17231d; transform: rotate(45deg); z-index: 2; }
+.base.occupied { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 12px rgba(255,207,74,.4); }
+.base.second { top: 2px; left: 46px; }
+.base.third { top: 38px; left: 10px; }
+.base.first { top: 38px; right: 10px; }
+.home-plate { position: absolute; left: 49px; bottom: 1px; width: 14px; height: 14px; border: 2px solid #536159; transform: rotate(45deg); }
+.base-line { position: absolute; bottom: 16px; width: 51px; height: 1px; background: #314039; transform-origin: bottom; }
+.base-line.left { left: 19px; transform: rotate(-45deg); }
+.base-line.right { right: 19px; transform: rotate(45deg); }
+.count-board { display: flex; flex-direction: column; gap: 9px; }
+.count-board > div { display: flex; align-items: center; gap: 10px; }
+.count-board b { width: 10px; color: var(--muted); font-size: 11px; }
+.count-dots { display: flex; gap: 5px; }
+.count-dots i { --dot-color: var(--green); width: 10px; height: 10px; border: 1px solid #4a554f; border-radius: 50%; background: #1b2620; }
+.count-dots i.on { border-color: var(--dot-color); background: var(--dot-color); box-shadow: 0 0 7px color-mix(in srgb, var(--dot-color) 55%, transparent); }
+.recent-pitches { border-left: 1px solid var(--line); padding-left: 24px; }
+.recent-pitches-title { display: flex; justify-content: space-between; margin-bottom: 7px; }
+.recent-pitches-title b { font-size: 11px; }
+.recent-pitches-title span { color: var(--muted); font-size: 9px; }
+.pitch-row { display: grid; grid-template-columns: 20px 62px 64px minmax(0,1fr); align-items: center; gap: 7px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.045); font-size: 10px; }
+.pitch-row:last-child { border: 0; }
+.pitch-row > b { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 5px; color: var(--accent); background: rgba(255,207,74,.08); }
+.pitch-row > span { color: var(--text); font-weight: 700; }
+.pitch-row > em { color: var(--muted); font-style: normal; }
+.pitch-row > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pitch-row > small.ball { color: var(--green); }
+.pitch-row > small.strike { color: var(--accent); }
+.pitch-row > small.play { color: #79a9ff; }
+.no-pitches { padding: 22px 0; color: var(--muted); font-size: 10px; text-align: center; }
+.last-play { display: flex; gap: 12px; align-items: center; margin-top: 19px; padding: 12px 14px; border-radius: 9px; background: rgba(255,207,74,.07); }
+.last-play span { flex: 0 0 auto; color: var(--accent); font-size: 8px; font-weight: 900; letter-spacing: .12em; }
+.last-play strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.live-empty { min-height: 150px; display: grid; place-content: center; text-align: center; }
+.live-empty b { color: var(--muted); }
+.live-empty p { color: var(--muted); font-size: 11px; }
 .chart-legend { display: flex; justify-content: flex-end; gap: 16px; margin-bottom: 6px; color: var(--muted); font-size: 11px; }
 .chart-legend span { display: flex; align-items: center; gap: 6px; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -155,6 +209,8 @@ footer { max-width: 1392px; margin: 56px auto 0; padding: 24px 0 36px; border-to
   .game-grid { grid-template-columns: repeat(3, 1fr); }
   .dashboard-grid { grid-template-columns: 1fr; }
   .side-column { display: grid; grid-template-columns: 1fr 1fr; }
+  .live-situation-grid { grid-template-columns: 1fr 1fr; }
+  .recent-pitches { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); padding: 18px 0 0; }
 }
 
 @media (max-width: 700px) {
@@ -171,6 +227,14 @@ footer { max-width: 1392px; margin: 56px auto 0; padding: 24px 0 36px; border-to
   .big-score b { font-size: 39px; }
   .big-score .team-mark { display: none; }
   .big-score strong { font-size: 15px; }
+  .live-title { align-items: flex-start; gap: 10px; }
+  .at-bat-status { max-width: 130px; text-align: center; }
+  .situation-meta { flex-wrap: wrap; }
+  .situation-meta small { width: 100%; margin-left: 0; }
+  .live-situation-grid { grid-template-columns: 1fr; gap: 20px; }
+  .matchup-players { max-width: 420px; width: 100%; margin: 0 auto; }
+  .recent-pitches { grid-column: auto; }
+  .pitch-row { grid-template-columns: 20px 55px 58px minmax(0,1fr); }
   .event { grid-template-columns: 38px minmax(0, 1fr); }
   .event > small { grid-column: 2; }
   .side-column { display: flex; }

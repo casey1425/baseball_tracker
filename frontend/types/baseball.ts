@@ -55,6 +55,27 @@ export interface WinProbabilityPoint {
   is_major: boolean;
 }
 
+export interface LiveSituation {
+  available: boolean;
+  phase: "scheduled" | "live" | "final";
+  message: string;
+  inning?: string;
+  offense_team?: string;
+  pitcher?: { code: string; name: string };
+  batter?: { code: string; name: string };
+  count?: { balls: number; strikes: number; outs: number };
+  bases?: { first: boolean; second: boolean; third: boolean };
+  recent_pitches?: Array<{
+    number: number;
+    text: string;
+    pitch_type: string;
+    speed: string;
+    result_code: string;
+  }>;
+  last_result?: string;
+  matchup?: string;
+}
+
 export interface Standing {
   favorite: boolean;
   rank: number;
