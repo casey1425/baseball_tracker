@@ -8,6 +8,7 @@ from game_summary import build_game_summary, is_game_finished
 from highlight_events import extract_highlights
 from relay_filters import RESULT_FILTERS, available_innings, filter_relays
 from standings import build_standings, normalize_team
+from win_probability import extract_win_probabilities
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -190,84 +191,7 @@ def fetch_all_innings_relay(game_id: str, total_innings: int):
                 
     return all_relays
 
-# 5. [수정 완료] 순차적 타석별 승리 확률 추출 (중복 제거 & 순서 보장)
-def extract_win_probabilities(all_text_relays, home_name="홈", away_name="원정"):
-    # 타석 고유 번호(no) 기준 오름차순(1회초 1번타자부터 순차 정렬)
-    sorted_relays = sorted(all_text_relays, key=lambda x: int(x.get("no", 0)))
-    
-    data_points = []
-    # 경기 시작 베이스라인
-    data_points.append({
-        "step": 0,
-        "inn_num": 0,
-        "inning": "경기 시작",
-        "event": "경기 시작 전 (50:50)",
-        "home_win_rate": 50.0,
-        "away_win_rate": 50.0,
-        "wpa": 0.0,
-        "score": "0 : 0",
-        "is_major": False
-    })
-    
-    seen_no = set()
-    step = 1
-    for at_bat in sorted_relays:
-        no = at_bat.get("no")
-        if no in seen_no:
-            continue
-        seen_no.add(no)
-
-        metric = at_bat.get("metricOption") or {}
-        h_rate = metric.get("homeTeamWinRate", 0.0)
-        a_rate = metric.get("awayTeamWinRate", 0.0)
-        wpa = metric.get("wpaByPlate", 0.0)
-        
-        # 유효하지 않은 확률 데이터 및 단순 구분선/공격 안내 헤더 제외
-        if (h_rate == 0.0 and a_rate == 0.0) or (h_rate + a_rate == 0.0):
-            continue
-            
-        title = (at_bat.get("title") or "").strip()
-        if not title or "==" in title or "공격" in title or "종료" in title:
-            continue
-            
-        inn = at_bat.get("inn", 1)
-        half = "말" if str(at_bat.get("homeOrAway")) == "1" else "초"
-        inning_str = f"{inn}회{half}"
-        
-        text_options = at_bat.get("textOptions") or []
-        final_text = ""
-        score_str = ""
-        if text_options:
-            for opt in reversed(text_options):
-                t = (opt.get("text") or "").strip()
-                if t and "==" not in t and "공격" not in t:
-                    final_text = t
-                    g_state = opt.get("currentGameState") or {}
-                    h_score = g_state.get("homeScore")
-                    a_score = g_state.get("awayScore")
-                    if h_score is not None and a_score is not None:
-                        score_str = f"{away_name} {a_score} : {h_score} {home_name}"
-                    break
-
-        event_summary = f"{title} ➔ {final_text}" if final_text and final_text != title else title
-        is_major = abs(wpa) >= 10.0 or any(k in final_text for k in ["홈런", "적시타", "역전", "끝내기", "밀어내기", "희생플라이"])
-
-        data_points.append({
-            "step": step,
-            "inn_num": int(inn) if str(inn).isdigit() else 1,
-            "inning": inning_str,
-            "event": event_summary,
-            "home_win_rate": float(h_rate),
-            "away_win_rate": float(a_rate),
-            "wpa": float(wpa),
-            "score": score_str,
-            "is_major": is_major
-        })
-        step += 1
-        
-    return data_points
-
-# 6. [수정 완료] 회차별 선택(1회, 2회... 전체) 지원 승리 확률 차트 렌더러
+# 5. 회차별 선택(1회, 2회... 전체) 지원 승리 확률 차트 렌더러
 def render_win_expectancy_chart(all_text_relays, home_name="홈", away_name="원정"):
     st.subheader("📈 실시간 승리 확률 (Win Expectancy)")
     

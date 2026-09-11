@@ -2,6 +2,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B?style=flat&logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Plotly](https://img.shields.io/badge/Plotly-5.18+-3F4F75?style=flat&logo=plotly&logoColor=white)](https://plotly.com/python/)
 [![HTTPX](https://img.shields.io/badge/HTTPX-Fast_HTTP_Client-1E88E5?style=flat)](https://www.python-httpx.org/)
 [![Pandas](https://img.shields.io/badge/Pandas-Data_Analysis-150458?style=flat&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
@@ -52,6 +53,7 @@ KBO 한국프로야구 리그의 **실시간 경기 진행 상황 및 과거 경
 |---|---|
 | **Language** | Python 3.10+ |
 | **Frontend / Dashboard** | Streamlit, HTML5/CSS3 (SVG), `streamlit-autorefresh` |
+| **Backend API** | FastAPI, Pydantic, Uvicorn |
 | **Data Visualization** | Plotly (인터랙티브 승리 확률 곡선 및 승부처 마커) |
 | **Networking & Concurrency** | HTTPX (HTTP Client), `concurrent.futures.ThreadPoolExecutor` |
 | **Data Processing** | Pandas |
@@ -63,7 +65,53 @@ KBO 한국프로야구 리그의 **실시간 경기 진행 상황 및 과거 경
 ```text
 baseball_tracker/
 ├── app.py              # Streamlit 메인 대시보드 웹 애플리케이션
+├── services/api/       # FastAPI 백엔드와 네이버 스포츠 비동기 클라이언트
+├── game_summary.py     # 경기 종료 요약 계산
+├── highlight_events.py # 하이라이트 이벤트 추출
+├── standings.py        # 팀 순위 데이터 변환
+├── win_probability.py  # 승리 확률 데이터 변환
 ├── check_api.py        # API 엔드포인트 및 패킷 점검용 유틸리티
-├── requirements.txt    # 의존성 라이브러리 목록 (Streamlit, Plotly, HTTPX, Pandas 등)
+├── requirements.txt    # Streamlit 및 FastAPI 실행 의존성
 ├── .gitignore          # Git 제외 파일 목록 (.venv, 캐시 등)
 └── README.md           # 프로젝트 문서
+```
+
+---
+
+## 🚀 실행 방법
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Streamlit 대시보드:
+
+```bash
+streamlit run app.py
+```
+
+FastAPI 백엔드:
+
+```bash
+uvicorn services.api.app.main:app --reload --port 8000
+```
+
+- API 문서: `http://localhost:8000/docs`
+- OpenAPI 스키마: `http://localhost:8000/openapi.json`
+- 프런트엔드 허용 출처: `KBO_CORS_ORIGINS` 환경 변수로 설정(기본값 `http://localhost:3000` 포함)
+
+### 주요 API
+
+| Method | Endpoint | 설명 |
+|---|---|---|
+| GET | `/api/v1/health` | 서버 상태 확인 |
+| GET | `/api/v1/games?date=YYYY-MM-DD` | 날짜별 경기 목록 |
+| GET | `/api/v1/games/{game_id}` | 경기 상세 정보 |
+| GET | `/api/v1/games/{game_id}/relay` | 최신 또는 특정 이닝 중계 |
+| GET | `/api/v1/games/{game_id}/highlights` | 주요 하이라이트 |
+| GET | `/api/v1/games/{game_id}/win-probability` | 승리 확률과 WPA |
+| GET | `/api/v1/games/{game_id}/summary` | 종료 경기 요약 |
+| GET | `/api/v1/standings` | 시즌 순위와 최근 흐름 |
+| GET | `/api/v1/teams/{team_name}/next-game` | 팀의 다음 경기 |

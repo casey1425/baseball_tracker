@@ -1,0 +1,1 @@
+"""KBO Tracker API application."""
