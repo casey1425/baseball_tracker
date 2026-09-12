@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from game_detail_data import build_boxscore, build_relay_entries
 from game_summary import build_game_summary, is_game_finished
 from highlight_events import extract_highlights
 from live_situation import build_live_situation, relay_is_available
@@ -132,12 +133,20 @@ async def game_dashboard(game_id: str, client: NaverSportsClient = Depends(get_n
         relays = []
         latest = {}
     home, away = _team_names(game)
+    home_lineup = latest.get("home_lineup") or {}
+    away_lineup = latest.get("away_lineup") or {}
+    summary = None
+    if is_game_finished(game):
+        summary = build_game_summary(game, relays, home, away, home_lineup, away_lineup)
     return {
         "game_id": game_id,
         "game": game,
         "highlights": extract_highlights(relays, home, away),
         "points": extract_win_probabilities(relays, home, away),
         "live_situation": build_live_situation(game, latest),
+        "relay_entries": build_relay_entries(relays, home, away),
+        "boxscore": build_boxscore(home_lineup, away_lineup, home, away),
+        "summary": summary,
     }
 
 

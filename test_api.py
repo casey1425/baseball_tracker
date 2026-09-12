@@ -126,6 +126,13 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(situation["batter"]["name"], "홈타자")
         self.assertTrue(situation["bases"]["first"])
         self.assertEqual(situation["recent_pitches"][0]["speed"], "145")
+        self.assertEqual(len(payload["relay_entries"]), 2)
+        self.assertEqual(payload["relay_entries"][0]["inning"], "9회말")
+        self.assertIn("홈런", payload["relay_entries"][0]["categories"])
+        self.assertEqual(payload["relay_entries"][0]["pitches"][0]["pitch_type"], "직구")
+        self.assertEqual(payload["boxscore"]["home"]["batters"][0]["name"], "홈타자")
+        self.assertEqual(payload["boxscore"]["away"]["pitchers"][0]["name"], "원정투수")
+        self.assertIn("LG 승리", payload["summary"]["headline"])
 
     def test_summary_requires_finished_game(self):
         self.fake.finished = False

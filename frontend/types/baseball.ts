@@ -76,6 +76,87 @@ export interface LiveSituation {
   matchup?: string;
 }
 
+export interface RelayPitch {
+  number: number;
+  text: string;
+  pitch_type: string;
+  speed: string;
+  ball: number;
+  strike: number;
+  out: number;
+}
+
+export interface RelayEntry {
+  id: string;
+  inning_number: string;
+  inning: string;
+  title: string;
+  result: string;
+  score: string;
+  categories: string[];
+  pitches: RelayPitch[];
+  order: number;
+}
+
+export interface BatterLine {
+  order: number;
+  name: string;
+  position: string;
+  at_bats: number;
+  hits: number;
+  home_runs: number;
+  rbi: number;
+  runs: number;
+  walks: number;
+  strikeouts: number;
+  season_average: number;
+  substitute: boolean;
+}
+
+export interface PitcherLine {
+  name: string;
+  innings: string;
+  pitch_count: number;
+  hits: number;
+  home_runs: number;
+  walks: number;
+  strikeouts: number;
+  runs: number;
+  earned_runs: number;
+  season_era: string;
+}
+
+export interface TeamBoxscore {
+  team: string;
+  batters: BatterLine[];
+  pitchers: PitcherLine[];
+}
+
+export interface Boxscore {
+  home: TeamBoxscore;
+  away: TeamBoxscore;
+}
+
+export interface SummaryEvent {
+  inning: string;
+  description: string;
+  score: string;
+  wpa: number;
+  abs_wpa: number;
+  order: number;
+}
+
+export interface GameSummary {
+  headline: string;
+  winner: string;
+  final_score: string;
+  lead_changes: number;
+  largest_lead: number;
+  decisive_event?: SummaryEvent;
+  key_events: SummaryEvent[];
+  mvp_candidate?: string;
+}
+
 export interface Standing {
   favorite: boolean;
   rank: number;

@@ -1,8 +1,11 @@
 import type {
+  Boxscore,
   GameDetail,
+  GameSummary,
   GameListItem,
   Highlight,
   LiveSituation,
+  RelayEntry,
   Standing,
   WinProbabilityPoint,
 } from "@/types/baseball";
@@ -29,12 +32,18 @@ export async function fetchGameBundle(gameId: string, signal?: AbortSignal) {
     highlights: Highlight[];
     points: WinProbabilityPoint[];
     live_situation: LiveSituation;
+    relay_entries: RelayEntry[];
+    boxscore: Boxscore;
+    summary: GameSummary | null;
   }>(`/games/${encoded}/dashboard`, signal);
   return {
     detail: dashboard.game,
     highlights: dashboard.highlights,
     points: dashboard.points,
     liveSituation: dashboard.live_situation,
+    relayEntries: dashboard.relay_entries,
+    boxscore: dashboard.boxscore,
+    summary: dashboard.summary,
   };
 }
 

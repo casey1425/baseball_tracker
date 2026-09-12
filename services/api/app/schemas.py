@@ -45,6 +45,9 @@ class DashboardResponse(BaseModel):
     highlights: list[dict[str, Any]]
     points: list[dict[str, Any]]
     live_situation: dict[str, Any]
+    relay_entries: list[dict[str, Any]]
+    boxscore: dict[str, Any]
+    summary: dict[str, Any] | None = None
 
 
 class SummaryResponse(BaseModel):
