@@ -7,15 +7,17 @@ import { BoxscorePanel } from "./BoxscorePanel";
 import { DatePicker } from "./DatePicker";
 import { LiveSituationPanel } from "./LiveSituationPanel";
 import { RelayPanel } from "./RelayPanel";
+import { ReplayPanel } from "./ReplayPanel";
 import { SummaryPanel } from "./SummaryPanel";
 import { WinProbabilityChart } from "./WinProbabilityChart";
 
 const KBO_TEAMS = ["LG", "한화", "SSG", "삼성", "NC", "KT", "롯데", "KIA", "두산", "키움"];
 const FILTERS = ["전체", "홈런", "득점", "안타/장타", "선수교체", "승부처", "삼진", "경기결과"];
 const POLL_INTERVAL = 10_000;
-type GameTab = "overview" | "relay" | "analysis" | "players" | "summary";
+type GameTab = "overview" | "replay" | "relay" | "analysis" | "players" | "summary";
 const GAME_TABS: Array<{ key: GameTab; label: string; icon: string }> = [
   { key: "overview", label: "경기 현황", icon: "◉" },
+  { key: "replay", label: "경기 다시보기", icon: "▶" },
   { key: "relay", label: "상세 중계", icon: "≡" },
   { key: "analysis", label: "경기 분석", icon: "⌁" },
   { key: "players", label: "선수 기록", icon: "▦" },
@@ -205,8 +207,8 @@ export function Dashboard() {
   useEffect(() => setActiveTab("overview"), [selectedId]);
 
   useEffect(() => {
-    if (activeTab === "summary" && !summary) setActiveTab("overview");
-  }, [activeTab, summary]);
+    if ((activeTab === "summary" && !summary) || (activeTab === "replay" && (!summary || points.length < 2))) setActiveTab("overview");
+  }, [activeTab, points.length, summary]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -230,7 +232,11 @@ export function Dashboard() {
   const selectedGame = games.find((game) => game.game_id === selectedId);
   const homeName = detail?.homeTeamName ?? selectedGame?.home ?? "홈";
   const awayName = detail?.awayTeamName ?? selectedGame?.away ?? "원정";
-  const visibleTabs = GAME_TABS.filter((tab) => tab.key !== "summary" || summary);
+  const visibleTabs = GAME_TABS.filter((tab) => {
+    if (tab.key === "summary") return Boolean(summary);
+    if (tab.key === "replay") return Boolean(summary && points.length > 1);
+    return true;
+  });
 
   function updateFavorite(team: string) {
     setFavorite(team);
@@ -290,6 +296,8 @@ export function Dashboard() {
                 </article>
                 <LiveSituationPanel situation={liveSituation} />
               </>}
+
+              {activeTab === "replay" && <ReplayPanel points={points} homeTeam={homeName} awayTeam={awayName} />}
 
               {activeTab === "relay" && <RelayPanel entries={relayEntries} />}
 

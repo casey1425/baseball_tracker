@@ -274,6 +274,52 @@ main { min-height: 100vh; }
 .summary-events strong { margin-top: 4px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .summary-events em { color: var(--accent); font-size: 11px; font-style: normal; font-weight: 800; }
 
+.replay-title { align-items: center; }
+.replay-title small { padding: 7px 10px; border: 1px solid var(--line); border-radius: 20px; background: rgba(255,255,255,.025); }
+.replay-stage { position: relative; min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 22px; border: 1px solid rgba(255,207,74,.22); border-radius: 15px; background: radial-gradient(circle at 50% 0%, rgba(255,207,74,.11), transparent 65%), rgba(255,255,255,.018); text-align: center; }
+.replay-scoreline { display: flex; align-items: center; gap: 10px; }
+.replay-scoreline span { padding: 5px 8px; border-radius: 7px; color: #111; background: var(--accent); font-size: 9px; font-weight: 900; }
+.replay-scoreline strong { color: var(--muted); font-size: 11px; }
+.replay-stage h3 { max-width: 720px; margin: 18px 0; font-size: clamp(17px, 2.5vw, 25px); line-height: 1.35; letter-spacing: -.035em; }
+.replay-probabilities { width: min(560px, 100%); display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.replay-probabilities > div { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 10px 11px 13px; border-radius: 9px; overflow: hidden; color: #c1cbc6; background: rgba(122,139,131,.1); text-align: left; font-size: 10px; }
+.replay-probabilities b { font-size: 11px; }
+.replay-probabilities i { position: absolute; left: 0; bottom: 0; height: 3px; max-width: 100%; background: #7a8b83; }
+.replay-probabilities .home { background: rgba(255,207,74,.08); }
+.replay-probabilities .home i { background: var(--accent); }
+.replay-wpa { position: absolute; top: 14px; right: 14px; padding: 6px 8px; border-radius: 7px; color: var(--muted); background: rgba(255,255,255,.04); font-size: 9px; font-weight: 900; }
+.replay-wpa.positive { color: var(--green); background: rgba(75,211,138,.08); }
+.replay-wpa.negative { color: #ff9090; background: rgba(255,100,100,.08); }
+.replay-chart { margin-top: 12px; padding: 8px 4px 0; border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.08); }
+.replay-chart svg { display: block; width: 100%; height: auto; }
+.replay-line-background, .replay-line-active { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.replay-line-background { stroke: #39453f; stroke-width: 3; }
+.replay-line-active { stroke: var(--accent); stroke-width: 4; }
+.replay-major { fill: #334039; stroke: #6c7871; stroke-width: 2; }
+.replay-major.played { fill: #fff; stroke: var(--accent); }
+.replay-cursor { stroke: rgba(255,255,255,.32); stroke-width: 1; stroke-dasharray: 5 5; }
+.replay-current { fill: #fff; stroke: var(--accent); stroke-width: 4; filter: drop-shadow(0 0 5px rgba(255,207,74,.55)); }
+.replay-range { --replay-progress: 0%; width: 100%; height: 5px; margin: 15px 0 18px; appearance: none; border-radius: 8px; outline: 0; background: linear-gradient(to right, var(--accent) var(--replay-progress), #344139 var(--replay-progress)); cursor: pointer; }
+.replay-range::-webkit-slider-thumb { width: 17px; height: 17px; appearance: none; border: 3px solid var(--accent); border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+.replay-range::-moz-range-thumb { width: 12px; height: 12px; border: 3px solid var(--accent); border-radius: 50%; background: #fff; }
+.replay-controls { display: grid; grid-template-columns: 1fr 1.15fr 1fr auto; gap: 8px; }
+.replay-controls > button, .replay-controls label { min-height: 42px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: rgba(255,255,255,.025); font-size: 10px; font-weight: 800; }
+.replay-controls > button { cursor: pointer; }
+.replay-controls > button:hover:not(:disabled) { border-color: rgba(255,207,74,.35); color: var(--text); }
+.replay-controls > button:disabled { cursor: default; opacity: .35; }
+.replay-controls .play-button { border-color: var(--accent); color: #111; background: var(--accent); font-size: 11px; }
+.replay-controls label { display: flex; align-items: center; gap: 7px; padding: 0 9px; white-space: nowrap; }
+.replay-controls select { border: 0; outline: 0; color: var(--text); background: transparent; font-size: 10px; font-weight: 900; }
+.replay-controls option { color: #111; }
+.replay-moments { margin-top: 26px; }
+.replay-moments > h3 { margin: 0 0 10px; font-size: 13px; }
+.replay-moments > div { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 5px; scrollbar-width: thin; }
+.replay-moments button { flex: 0 0 220px; display: grid; grid-template-columns: 1fr auto; gap: 5px 8px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: rgba(255,255,255,.018); cursor: pointer; text-align: left; }
+.replay-moments button:hover, .replay-moments button.active { border-color: rgba(255,207,74,.4); background: rgba(255,207,74,.06); }
+.replay-moments span { color: var(--accent); font-size: 9px; font-weight: 900; }
+.replay-moments strong { grid-column: 1 / -1; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.replay-moments small { grid-column: 2; grid-row: 1; color: var(--green); font-size: 9px; font-weight: 800; }
+
 .standings-panel { padding: 20px 18px; }
 .standings-list { display: flex; flex-direction: column; }
 .standing-row { display: grid; grid-template-columns: 22px 28px 42px 1fr auto; grid-template-areas: "rank mark team record rate" "rank mark trend record streak"; align-items: center; column-gap: 7px; padding: 10px 6px; border-bottom: 1px solid var(--line); font-size: 11px; }
@@ -340,6 +386,14 @@ footer { max-width: 1392px; margin: 56px auto 0; padding: 24px 0 36px; border-to
   .relay-pitches { padding-left: 15px; }
   .relay-pitches > div { grid-template-columns: 32px 50px 55px minmax(0,1fr); }
   .relay-pitches > div small { grid-column: 4; }
+  .replay-stage { min-height: 215px; padding-inline: 14px; }
+  .replay-scoreline { flex-direction: column; }
+  .replay-stage h3 { margin-block: 14px; }
+  .replay-probabilities { grid-template-columns: 1fr; }
+  .replay-wpa { position: static; margin-top: 10px; }
+  .replay-controls { grid-template-columns: 1fr 1fr; }
+  .replay-controls .play-button { grid-column: 1 / -1; grid-row: 1; }
+  .replay-controls label { justify-content: center; }
   .summary-stats { grid-template-columns: 1fr; }
   .decisive-card { grid-template-columns: 62px minmax(0,1fr); grid-template-areas: "label label" "inning play" "metric metric"; }
   .event { grid-template-columns: 38px minmax(0, 1fr); }
