@@ -87,7 +87,9 @@ main { min-height: 100vh; }
 .skeleton { background: linear-gradient(100deg, var(--panel) 30%, #1a2721 50%, var(--panel) 70%); background-size: 300% 100%; animation: shimmer 1.4s infinite; }
 
 .detail-workspace { max-width: 1440px; margin: 42px auto 0; padding: 0 24px; }
+.detail-toolbar { display: flex; align-items: stretch; gap: 8px; }
 .game-tabs { display: flex; gap: 5px; overflow-x: auto; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: rgba(17,26,22,.88); scrollbar-width: none; }
+.detail-toolbar .game-tabs { flex: 1 1 auto; min-width: 0; }
 .game-tabs::-webkit-scrollbar { display: none; }
 .game-tabs button { flex: 1 0 auto; min-width: 130px; height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; font-weight: 800; transition: .18s ease; }
 .game-tabs button:hover { color: var(--text); background: rgba(255,255,255,.04); }
@@ -95,6 +97,10 @@ main { min-height: 100vh; }
 .game-tabs button i { font-size: 14px; font-style: normal; }
 .game-tabs button small { min-width: 20px; padding: 2px 5px; border-radius: 10px; color: var(--text); background: rgba(255,255,255,.1); font-size: 9px; }
 .game-tabs button.active small { color: #111; background: rgba(0,0,0,.12); }
+.copy-link-button { flex: 0 0 98px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 14px; color: var(--muted); background: rgba(17,26,22,.88); cursor: pointer; font-size: 10px; font-weight: 800; }
+.copy-link-button:hover { border-color: rgba(255,207,74,.38); color: var(--accent); }
+.copy-link-button.copied { border-color: rgba(75,211,138,.3); color: var(--green); background: rgba(75,211,138,.06); }
+.copy-link-button i { font-size: 13px; font-style: normal; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 14px; margin-top: 14px; }
 .main-column, .side-column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .panel { border: 1px solid var(--line); border-radius: 18px; background: rgba(17,26,22,.92); padding: 24px; overflow: hidden; }
@@ -365,6 +371,8 @@ footer { max-width: 1392px; margin: 56px auto 0; padding: 24px 0 36px; border-to
   .detail-workspace { margin-top: 30px; }
   .game-tabs { justify-content: flex-start; }
   .game-tabs button { min-width: 112px; }
+  .copy-link-button { flex-basis: 48px; font-size: 0; }
+  .copy-link-button i { font-size: 15px; }
   .game-grid { display: flex; overflow-x: auto; padding-bottom: 5px; }
   .game-card { min-width: 210px; }
   .big-score { gap: 8px; }

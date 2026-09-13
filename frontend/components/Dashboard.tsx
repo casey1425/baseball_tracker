@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchGameBundle, fetchGames, fetchStandings } from "@/lib/api";
+import { dashboardPath, type GameTab } from "@/lib/dashboard-route";
 import type { Boxscore, GameDetail, GameListItem, GameSummary, Highlight, LiveSituation, RelayEntry, Standing, WinProbabilityPoint } from "@/types/baseball";
 import { BoxscorePanel } from "./BoxscorePanel";
 import { DatePicker } from "./DatePicker";
@@ -14,7 +15,6 @@ import { WinProbabilityChart } from "./WinProbabilityChart";
 const KBO_TEAMS = ["LG", "한화", "SSG", "삼성", "NC", "KT", "롯데", "KIA", "두산", "키움"];
 const FILTERS = ["전체", "홈런", "득점", "안타/장타", "선수교체", "승부처", "삼진", "경기결과"];
 const POLL_INTERVAL = 10_000;
-type GameTab = "overview" | "replay" | "relay" | "analysis" | "players" | "summary";
 const GAME_TABS: Array<{ key: GameTab; label: string; icon: string }> = [
   { key: "overview", label: "경기 현황", icon: "◉" },
   { key: "replay", label: "경기 다시보기", icon: "▶" },
@@ -116,10 +116,14 @@ function Standings({ rows, favorite }: { rows: Standing[]; favorite: string }) {
   );
 }
 
-export function Dashboard() {
-  const [date, setDate] = useState("");
+export function Dashboard({ initialDate = "", initialGameId = "", initialTab = "overview" }: {
+  initialDate?: string;
+  initialGameId?: string;
+  initialTab?: GameTab;
+}) {
+  const [date, setDate] = useState(initialDate);
   const [games, setGames] = useState<GameListItem[]>([]);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(initialGameId);
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [points, setPoints] = useState<WinProbabilityPoint[]>([]);
@@ -127,7 +131,7 @@ export function Dashboard() {
   const [relayEntries, setRelayEntries] = useState<RelayEntry[]>([]);
   const [boxscore, setBoxscore] = useState<Boxscore | null>(null);
   const [summary, setSummary] = useState<GameSummary | null>(null);
-  const [activeTab, setActiveTab] = useState<GameTab>("overview");
+  const [activeTab, setActiveTab] = useState<GameTab>(initialTab);
   const [standings, setStandings] = useState<Standing[]>([]);
   const [favorite, setFavorite] = useState("");
   const [filter, setFilter] = useState("전체");
@@ -136,11 +140,12 @@ export function Dashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
-    setDate(kstDate());
+    if (!initialDate) setDate(kstDate());
     setFavorite(localStorage.getItem("kbo-favorite-team") ?? "");
-  }, []);
+  }, [initialDate]);
 
   const loadGames = useCallback(async (signal?: AbortSignal, silent = false) => {
     if (!date) return;
@@ -204,11 +209,20 @@ export function Dashboard() {
     return () => controller.abort();
   }, [loadDetail]);
 
-  useEffect(() => setActiveTab("overview"), [selectedId]);
+  useEffect(() => {
+    if (!detail) return;
+    if ((activeTab === "summary" && !summary) || (activeTab === "replay" && (!summary || points.length < 2))) setActiveTab("overview");
+  }, [activeTab, detail, points.length, summary]);
 
   useEffect(() => {
-    if ((activeTab === "summary" && !summary) || (activeTab === "replay" && (!summary || points.length < 2))) setActiveTab("overview");
-  }, [activeTab, points.length, summary]);
+    if (!date) return;
+    const nextPath = dashboardPath(date, selectedId, activeTab);
+    if (`${window.location.pathname}${window.location.search}` !== nextPath) {
+      window.history.replaceState(window.history.state, "", nextPath);
+    }
+  }, [activeTab, date, selectedId]);
+
+  useEffect(() => setLinkCopied(false), [activeTab, date, selectedId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -244,6 +258,34 @@ export function Dashboard() {
     else localStorage.removeItem("kbo-favorite-team");
   }
 
+  function selectDate(value: string) {
+    setDate(value);
+    setSelectedId("");
+    setActiveTab("overview");
+  }
+
+  function selectGame(gameId: string) {
+    setSelectedId(gameId);
+    setActiveTab("overview");
+  }
+
+  async function copyGameLink() {
+    const url = `${window.location.origin}${dashboardPath(date, selectedId, activeTab)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    setLinkCopied(true);
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -257,11 +299,11 @@ export function Dashboard() {
       <section className="hero">
         <div><span className="eyebrow">TODAY&apos;S GAMES</span><h1>오늘의 KBO를<br /><em>한눈에.</em></h1><p>모든 경기의 흐름과 승부처를 실시간으로 확인하세요.</p></div>
         <div className="date-picker-group">
-          <button className={`today-button ${date === kstDate() ? "active" : ""}`} onClick={() => setDate(kstDate())}>오늘</button>
+          <button className={`today-button ${date === kstDate() ? "active" : ""}`} onClick={() => selectDate(kstDate())}>오늘</button>
           <div className="date-control">
-            <button onClick={() => setDate((value) => shiftDate(value, -1))} aria-label="이전 날짜">←</button>
-            <DatePicker value={date} onChange={setDate} />
-            <button onClick={() => setDate((value) => shiftDate(value, 1))} aria-label="다음 날짜">→</button>
+            <button onClick={() => selectDate(shiftDate(date, -1))} aria-label="이전 날짜">←</button>
+            <DatePicker value={date} onChange={selectDate} />
+            <button onClick={() => selectDate(shiftDate(date, 1))} aria-label="다음 날짜">→</button>
           </div>
         </div>
       </section>
@@ -271,15 +313,18 @@ export function Dashboard() {
       <section className="games-section">
         <div className="section-heading"><div><span>GAMES</span><h2>전체 경기</h2></div><small>{updatedAt ? `마지막 갱신 ${updatedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</small></div>
         <div className="game-grid">
-          {loading ? Array.from({ length: 5 }, (_, index) => <div className="game-card skeleton" key={index} />) : games.length ? games.map((game) => <GameCard key={game.game_id} game={game} selected={selectedId === game.game_id} favorite={favorite} onClick={() => setSelectedId(game.game_id)} />) : <div className="empty-state">이 날짜에는 예정된 경기가 없습니다.</div>}
+          {loading ? Array.from({ length: 5 }, (_, index) => <div className="game-card skeleton" key={index} />) : games.length ? games.map((game) => <GameCard key={game.game_id} game={game} selected={selectedId === game.game_id} favorite={favorite} onClick={() => selectGame(game.game_id)} />) : <div className="empty-state">이 날짜에는 예정된 경기가 없습니다.</div>}
         </div>
       </section>
 
       {selectedId && (
         <div className="detail-workspace">
-          <nav className="game-tabs" aria-label="경기 상세 메뉴" role="tablist">
-            {visibleTabs.map((tab) => <button key={tab.key} role="tab" aria-selected={activeTab === tab.key} className={activeTab === tab.key ? "active" : ""} onClick={() => setActiveTab(tab.key)}><i>{tab.icon}</i>{tab.label}{tab.key === "relay" && relayEntries.length > 0 && <small>{relayEntries.length}</small>}</button>)}
-          </nav>
+          <div className="detail-toolbar">
+            <nav className="game-tabs" aria-label="경기 상세 메뉴" role="tablist">
+              {visibleTabs.map((tab) => <button key={tab.key} role="tab" aria-selected={activeTab === tab.key} className={activeTab === tab.key ? "active" : ""} onClick={() => setActiveTab(tab.key)}><i>{tab.icon}</i>{tab.label}{tab.key === "relay" && relayEntries.length > 0 && <small>{relayEntries.length}</small>}</button>)}
+            </nav>
+            <button className={`copy-link-button ${linkCopied ? "copied" : ""}`} type="button" onClick={copyGameLink}><i>{linkCopied ? "✓" : "↗"}</i>{linkCopied ? "복사됨" : "링크 복사"}</button>
+          </div>
           <div className="dashboard-grid">
             <section className="main-column">
               {activeTab === "overview" && <>
