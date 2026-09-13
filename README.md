@@ -139,13 +139,19 @@ npm run dev
 ```
 
 - 대시보드: `http://localhost:3000`
-- API 주소를 변경하려면 `frontend/.env.local`의 `NEXT_PUBLIC_API_BASE_URL`을 수정합니다.
+- Next.js 프록시가 호출하는 API 주소를 변경하려면 `frontend/.env.local`의 `KBO_API_BASE_URL`을 수정합니다.
 
 - API 문서: `http://localhost:8000/docs`
 - OpenAPI 스키마: `http://localhost:8000/openapi.json`
 - 프런트엔드 허용 출처: `KBO_CORS_ORIGINS` 환경 변수로 설정(기본값 `http://localhost:3000` 포함)
 
 ## 🌐 Render 공개 배포
+
+현재 운영 주소:
+
+- Next.js 대시보드: [https://baseball-tracker-web.onrender.com](https://baseball-tracker-web.onrender.com)
+- FastAPI 상태 확인: [https://baseball-tracker-api.onrender.com/api/v1/health](https://baseball-tracker-api.onrender.com/api/v1/health)
+- FastAPI 문서: [https://baseball-tracker-api.onrender.com/docs](https://baseball-tracker-api.onrender.com/docs)
 
 저장소 루트의 `render.yaml`은 FastAPI와 Next.js를 각각 Render Web Service로 생성합니다. 프런트엔드는 `/api/kbo/*` 프록시를 통해 FastAPI를 호출하므로 브라우저 CORS 값을 따로 연결할 필요가 없습니다. 무료 Web Service는 내부 요청을 받을 수 없어 Blueprint에는 FastAPI의 공개 HTTPS 주소가 설정되어 있습니다.
 
