@@ -147,13 +147,13 @@ npm run dev
 
 ## 🌐 Render 공개 배포
 
-저장소 루트의 `render.yaml`은 FastAPI와 Next.js를 각각 Render Web Service로 생성합니다. 프런트엔드는 `/api/kbo/*` 프록시를 통해 Render 내부망의 FastAPI를 호출하므로 공개 API 주소나 CORS 값을 따로 연결할 필요가 없습니다.
+저장소 루트의 `render.yaml`은 FastAPI와 Next.js를 각각 Render Web Service로 생성합니다. 프런트엔드는 `/api/kbo/*` 프록시를 통해 FastAPI를 호출하므로 브라우저 CORS 값을 따로 연결할 필요가 없습니다. 무료 Web Service는 내부 요청을 받을 수 없어 Blueprint에는 FastAPI의 공개 HTTPS 주소가 설정되어 있습니다.
 
 1. [Render Blueprint 생성 화면](https://dashboard.render.com/blueprints)에서 **New Blueprint Instance**를 선택합니다.
 2. GitHub의 `baseball_tracker` 저장소를 연결하고 `render.yaml`을 승인합니다.
 3. 두 서비스의 첫 배포가 완료되면 `baseball-tracker-web` 서비스에 표시된 `onrender.com` 주소로 접속합니다.
 
-Render 무료 Web Service는 일정 시간 요청이 없으면 중지되므로 첫 접속 시 다시 시작되는 시간이 걸릴 수 있습니다. 이후 `main` 브랜치에 푸시한 변경은 두 서비스에 자동으로 배포됩니다.
+Render 무료 Web Service는 일정 시간 요청이 없으면 중지되므로 첫 접속 시 다시 시작되는 시간이 걸릴 수 있습니다. GitHub 앱으로 저장소를 연결했다면 `main` 브랜치 변경이 자동 배포되며, 공개 Git URL로 연결했다면 Blueprint 화면의 **Manual sync**로 갱신할 수 있습니다.
 
 ### 주요 API
 

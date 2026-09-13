@@ -17,7 +17,4 @@ services:
     healthCheckPath: /
     envVars:
       - key: KBO_API_BASE_URL
-        fromService:
-          type: web
-          name: baseball-tracker-api
-          property: hostport
+        value: https://baseball-tracker-api.onrender.com/api/v1
