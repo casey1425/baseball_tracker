@@ -10,7 +10,7 @@ import type {
   WinProbabilityPoint,
 } from "@/types/baseball";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "/api/kbo").replace(/\/$/, "");
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { cache: "no-store", signal });

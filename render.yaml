@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: baseball-tracker-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn services.api.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+
+  - type: web
+    name: baseball-tracker-web
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: KBO_API_BASE_URL
+        fromService:
+          type: web
+          name: baseball-tracker-api
+          property: hostport

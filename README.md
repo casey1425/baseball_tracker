@@ -97,6 +97,7 @@ baseball_tracker/
 ├── win_probability.py  # 승리 확률 데이터 변환
 ├── check_api.py        # API 엔드포인트 및 패킷 점검용 유틸리티
 ├── requirements.txt    # Streamlit 및 FastAPI 실행 의존성
+├── render.yaml         # FastAPI와 Next.js 공개 배포 Blueprint
 ├── .gitignore          # Git 제외 파일 목록 (.venv, 캐시 등)
 └── README.md           # 프로젝트 문서
 ```
@@ -143,6 +144,16 @@ npm run dev
 - API 문서: `http://localhost:8000/docs`
 - OpenAPI 스키마: `http://localhost:8000/openapi.json`
 - 프런트엔드 허용 출처: `KBO_CORS_ORIGINS` 환경 변수로 설정(기본값 `http://localhost:3000` 포함)
+
+## 🌐 Render 공개 배포
+
+저장소 루트의 `render.yaml`은 FastAPI와 Next.js를 각각 Render Web Service로 생성합니다. 프런트엔드는 `/api/kbo/*` 프록시를 통해 Render 내부망의 FastAPI를 호출하므로 공개 API 주소나 CORS 값을 따로 연결할 필요가 없습니다.
+
+1. [Render Blueprint 생성 화면](https://dashboard.render.com/blueprints)에서 **New Blueprint Instance**를 선택합니다.
+2. GitHub의 `baseball_tracker` 저장소를 연결하고 `render.yaml`을 승인합니다.
+3. 두 서비스의 첫 배포가 완료되면 `baseball-tracker-web` 서비스에 표시된 `onrender.com` 주소로 접속합니다.
+
+Render 무료 Web Service는 일정 시간 요청이 없으면 중지되므로 첫 접속 시 다시 시작되는 시간이 걸릴 수 있습니다. 이후 `main` 브랜치에 푸시한 변경은 두 서비스에 자동으로 배포됩니다.
 
 ### 주요 API
 
